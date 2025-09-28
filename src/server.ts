@@ -49,6 +49,11 @@ app.route({
   }
 });
 
+// Health check route
+app.get("/healthz", async (req, reply) => {
+  reply.send({ ok: true });
+});
+
 // Helper route to resolve current session (cookie/x-api-key/bearer)
 app.get("/me", async (req, reply) => {
   const headers = new Headers();
