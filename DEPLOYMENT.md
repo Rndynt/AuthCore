@@ -10,10 +10,10 @@
 Set these in Netlify UI (Site Settings > Environment Variables):
 
 ```bash
-BETTER_AUTH_URL=https://your-site-name.netlify.app
-BETTER_AUTH_SECRET=your-long-secure-random-string-min-32-chars
-TRUSTED_ORIGINS=https://your-frontend-domain.com,https://your-admin-domain.com
-DATABASE_URL=postgresql://user:password@host:port/database?sslmode=require
+BETTER_AUTH_URL=
+BETTER_AUTH_SECRET=
+TRUSTED_ORIGINS=
+DATABASE_URL=
 ```
 
 ### 3. Build Settings
