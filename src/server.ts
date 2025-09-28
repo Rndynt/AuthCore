@@ -16,6 +16,11 @@ app.register(cors, {
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-api-key"]
 });
 
+app.setErrorHandler((err, _req, reply) => {
+  app.log.error({ err }, 'unhandled-error');
+  reply.status(err.statusCode ?? 500).send({ error: 'internal_error' });
+});
+
 app.ready(() => {
   console.log(`Auth service running on port ${env.PORT}`);
 });
