@@ -91,13 +91,13 @@ app.setErrorHandler((error, request, reply) => {
   if (process.env.NODE_ENV === "development") {
     // In development, also serve the frontend
     try {
-      await setupVite(app as any, server);
+      await setupVite(app, server);
     } catch (err) {
       console.warn("Vite setup failed, running as auth-only service:", (err as Error).message);
     }
   } else {
     try {
-      serveStatic(app as any);
+      await serveStatic(app);
     } catch (err) {
       console.warn("Static serving failed, running as auth-only service:", (err as Error).message);
     }

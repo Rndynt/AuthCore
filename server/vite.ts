@@ -3,12 +3,13 @@ import fs from "fs";
 import path from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
+import type { FastifyInstance } from "fastify";
 import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
 
 const viteLogger = createLogger();
 
-export function log(message: string, source = "express") {
+export function log(message: string, source = "fastify") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -19,7 +20,8 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
-export async function setupVite(app: Express, server: Server) {
+// Fastify-compatible Vite setup
+export async function setupVite(app: FastifyInstance, server: Server) {
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
@@ -40,9 +42,36 @@ export async function setupVite(app: Express, server: Server) {
     appType: "custom",
   });
 
-  app.use(vite.middlewares);
-  app.use("*", async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const url = req.originalUrl;
+  // Register Vite dev middleware for assets
+  app.get("/@vite/*", async (request, reply) => {
+    const req = {
+      ...request.raw,
+      url: request.url,
+      method: request.method,
+      headers: request.headers,
+    };
+    const res = {
+      ...reply.raw,
+      setHeader: (name: string, value: string) => reply.header(name, value),
+      end: (data: string) => reply.send(data),
+    };
+    
+    return new Promise((resolve, reject) => {
+      vite.middlewares(req as any, res as any, (err?: Error) => {
+        if (err) reject(err);
+        else resolve(undefined);
+      });
+    });
+  });
+
+  // Handle frontend SPA routing - catch all non-API routes
+  app.get("/*", { preHandler: async (request, reply) => {
+    // Skip API routes
+    if (request.url.startsWith("/api")) {
+      return;
+    }
+  }}, async (request, reply) => {
+    const url = request.url;
 
     try {
       const clientTemplate = path.resolve(
@@ -59,16 +88,16 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
       const page = await vite.transformIndexHtml(url, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      reply.header("Content-Type", "text/html").send(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
-      next(e);
+      reply.status(500).send({ error: "Internal Server Error" });
     }
   });
 }
 
-export function serveStatic(app: Express) {
-  const distPath = path.resolve(import.meta.dirname, "public");
+export async function serveStatic(app: FastifyInstance) {
+  const distPath = path.resolve(import.meta.dirname, "..", "dist", "public");
 
   if (!fs.existsSync(distPath)) {
     throw new Error(
@@ -76,10 +105,20 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  // Register static file serving
+  await app.register(require('@fastify/static'), {
+    root: distPath,
+    prefix: '/', // optional: default '/'
+  });
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (_req: express.Request, res: express.Response) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+  // fall through to index.html if the file doesn't exist (SPA routing)
+  app.get("/*", { preHandler: async (request, reply) => {
+    // Skip API routes
+    if (request.url.startsWith("/api")) {
+      return;
+    }
+  }}, async (request, reply) => {
+    const indexPath = path.resolve(distPath, "index.html");
+    reply.header("Content-Type", "text/html").send(await fs.promises.readFile(indexPath, "utf-8"));
   });
 }
