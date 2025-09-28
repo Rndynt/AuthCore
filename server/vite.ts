@@ -46,8 +46,11 @@ export async function setupVite(app: FastifyInstance, server: Server) {
   app.addHook('onRequest', async (request, reply) => {
     // Only handle Vite-specific routes
     if (request.url.startsWith('/@vite') || request.url.startsWith('/src/') || 
-        request.url.startsWith('/node_modules/') || request.url.endsWith('.ts') ||
-        request.url.endsWith('.tsx') || request.url.endsWith('.js') || request.url.endsWith('.jsx')) {
+        request.url.startsWith('/node_modules/') || request.url.startsWith('/@fs/') ||
+        request.url.startsWith('/@react-refresh') || request.url.startsWith('/@replit/') ||
+        request.url.endsWith('.ts') || request.url.endsWith('.tsx') || 
+        request.url.endsWith('.js') || request.url.endsWith('.jsx') ||
+        request.url.endsWith('.css') || request.url.endsWith('.mjs')) {
       
       const req = request.raw;
       const res = reply.raw;
