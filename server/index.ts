@@ -93,13 +93,13 @@ app.setErrorHandler((error, request, reply) => {
     try {
       await setupVite(app as any, server);
     } catch (err) {
-      console.warn("Vite setup failed, running as auth-only service:", err.message);
+      console.warn("Vite setup failed, running as auth-only service:", (err as Error).message);
     }
   } else {
     try {
       serveStatic(app as any);
     } catch (err) {
-      console.warn("Static serving failed, running as auth-only service:", err.message);
+      console.warn("Static serving failed, running as auth-only service:", (err as Error).message);
     }
   }
 
