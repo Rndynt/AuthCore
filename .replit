@@ -31,10 +31,10 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Start application"
+args = "Auth Service"
 
 [[workflows.workflow]]
-name = "Start application"
+name = "Auth Service"
 author = "agent"
 
 [[workflows.workflow.tasks]]
