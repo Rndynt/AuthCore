@@ -9,7 +9,7 @@ import { apiKey } from "better-auth/plugins";
 import { jwt } from "better-auth/plugins";
 import { bearer } from "better-auth/plugins";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ log: ['warn','error'] });
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: "postgresql" }),
