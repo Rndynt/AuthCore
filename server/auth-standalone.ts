@@ -2,7 +2,6 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { auth } from "../src/auth.js";
 import { env, trustedOrigins } from "../src/env.js";
-import { setupVite, serveStatic, log } from "./vite.js";
 
 const app = Fastify({ logger: true });
 
@@ -15,26 +14,6 @@ app.register(cors, {
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-api-key"]
-});
-
-// Request logging middleware
-app.addHook('onRequest', async (request, reply) => {
-  (request as any).startTime = Date.now();
-});
-
-app.addHook('onResponse', async (request, reply) => {
-  const duration = Date.now() - ((request as any).startTime || Date.now());
-  const path = request.url;
-  
-  if (path.startsWith("/api")) {
-    let logLine = `${request.method} ${path} ${reply.statusCode} in ${duration}ms`;
-    
-    if (logLine.length > 80) {
-      logLine = logLine.slice(0, 79) + "…";
-    }
-    
-    log(logLine);
-  }
 });
 
 // Catch-all route for better-auth
@@ -83,27 +62,15 @@ app.setErrorHandler((error, request, reply) => {
   app.log.error(error);
 });
 
-(async () => {
-  const server = app.server;
-
-  // For development, we'll handle frontend serving differently
-  // For production, we'll just be an auth service
-  if (process.env.NODE_ENV === "development") {
-    // In development, also serve the frontend
-    try {
-      await setupVite(app as any, server);
-    } catch (err) {
-      console.warn("Vite setup failed, running as auth-only service:", err.message);
-    }
-  } else {
-    try {
-      serveStatic(app as any);
-    } catch (err) {
-      console.warn("Static serving failed, running as auth-only service:", err.message);
-    }
+const startServer = async () => {
+  try {
+    const port = parseInt(process.env.PORT || '4000', 10);
+    await app.listen({ host: "0.0.0.0", port });
+    app.log.info(`Auth service running on port ${port}`);
+  } catch (err) {
+    app.log.error(err);
+    process.exit(1);
   }
+};
 
-  const port = parseInt(process.env.PORT || '5000', 10);
-  await app.listen({ host: "0.0.0.0", port });
-  log(`Auth service running on port ${port} - Express removed, Fastify only`);
-})();
+startServer();
