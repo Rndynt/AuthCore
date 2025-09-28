@@ -18,7 +18,9 @@ export const auth = betterAuth({
   url: env.BETTER_AUTH_URL,
 
   // Keep it simple for Netlify: single Set-Cookie
-  session: { cookieCache: { enabled: false } },
+  session: { 
+    cookieCache: { enabled: false }
+  },
 
   // Cross-origin callers (frontends, admin dashboards)
   trustedOrigins,
