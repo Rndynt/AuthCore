@@ -1,0 +1,339 @@
+You are a meticulous senior Node/TypeScript engineer. REPAIR and FINALIZE a production-ready Auth Service using **Fastify + better-auth** (**no Express anywhere**). Work directly in this repo:
+
+- Repo: https://github.com/Rndynt/AuthCore
+
+Your job has two phases: (A) **AUDIT & FIX** to match this prompt exactly, (B) if needed, **REBUILD/REPLACE** anything to satisfy ALL requirements. Remove Express completely and enforce Fastify only.
+
+──────────────────────────────────────────────────────────────────────────────
+PHASE A — AUDIT & FIX (run first; then fix all non-compliance)
+Produce a concise audit table first, then make changes. Check these items:
+
+1) Framework
+   - No `express` in dependencies, devDependencies, imports, or files.
+   - No usage of `express.json()`, `app.use()`, `Router()`, or Express middleware.
+   - Fastify present with `@fastify/cors`.
+   - A catch-all route serves `auth.handler` at `/api/auth/*`.
+
+2) better-auth
+   - Installed and configured with:
+     - `emailAndPassword.enabled = true`
+     - `session.cookieCache = false` (avoid multi Set-Cookie issues on Netlify)
+     - `trustedOrigins` loaded from env
+     - `secret` loaded from env
+   - Plugins enabled: `admin()`, `organization()`, `apiKey()`, `jwt()`, `bearer()`.
+
+3) Database (Prisma + Postgres)
+   - `@prisma/client` + `prisma` installed.
+   - `prisma/schema.prisma` uses datasource `postgresql` and `DATABASE_URL`.
+   - Run `npx @better-auth/cli generate prisma` to append required models.
+   - Migrations applied (`prisma migrate` or `prisma migrate deploy`).
+   - `DATABASE_URL` used everywhere needed.
+
+4) TypeScript / ESM
+   - `"type": "module"` in package.json.
+   - Strict TS config compiles cleanly (no errors).
+   - Use `tsx` for dev; all sources are `.ts` and ESM compatible.
+
+5) Env & CORS
+   - `.env.example` includes: `PORT`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, `TRUSTED_ORIGINS`, `DATABASE_URL`.
+   - CORS with `credentials: true`, `origin` validated against `trustedOrigins`, and allowed headers include `x-api-key`.
+
+6) Netlify Functions Integration
+   - `netlify.toml` redirects `/api/auth/*` → `/.netlify/functions/auth` (status 200).
+   - Function exists at `netlify/functions/auth.ts` bridging `auth.handler`.
+   - Response supports multiple cookies via `multiValueHeaders` (even if cookieCache=false).
+   - `netlify dev` runs locally without errors.
+
+7) Routes present
+   - `GET /api/auth/session` returns session or null.
+   - `POST /api/auth/sign-up/email` and `POST /api/auth/sign-in/email` work.
+   - `GET /me` returns `auth.api.getSession({ headers })` (works with cookie, `x-api-key`, or bearer).
+
+8) Scripts
+   - package.json has scripts for dev/build, prisma gen/migrate/deploy, better-auth gen, netlify dev/build/serve, and smoke tests.
+
+9) README
+   - Explains features, env vars, DB setup, local dev, smoke tests, S2S (API Key/JWT), and Netlify deployment steps.
+
+If any check fails:
+- Remove Express entirely:
+  - `pnpm remove express @types/express` (ignore error if not present)
+  - Delete Express files/routes/middleware
+  - Replace with Fastify as specified below
+- Implement/patch until ALL checks pass.
+
+At the end of PHASE A, print:
+- **Compliance Report Table** (✔/✖ per item with file paths touched)
+- **Diff Summary** (created/updated/removed files)
+- **Commands executed & outputs**
+- **Smoke test results** (HTTP status + key headers)
+- **Explicit confirmation**: “Express removed. Fastify only.”
+
+──────────────────────────────────────────────────────────────────────────────
+PHASE B — (RE)BUILD TO SPEC (if needed after audit)
+Target: production-ready Auth Service using **Fastify + better-auth** with:
+- End-user auth: Email & Password
+- Plugins: Admin, Organization (RBAC), API Key, JWT (+ Bearer helper)
+- Secure session cookies; CORS with credentials; trustedOrigins
+- Database: PostgreSQL via Prisma (schema from better-auth CLI)
+- Local dev: Fastify server exposing `/api/auth/*` and `/me`
+- Production: Netlify Functions (Node) bridging `auth.handler` at `/.netlify/functions/auth` with redirect from `/api/auth/*`
+- Include README, scripts, and smoke tests (curl)
+- TypeScript everywhere, ESM, strict
+- **No Express anywhere**
+
+File tree (final target, exact):
+.
+├─ src/
+│  ├─ auth.ts
+│  ├─ server.ts
+│  ├─ env.ts
+├─ netlify/
+│  └─ functions/
+│     └─ auth.ts
+├─ prisma/
+│  └─ schema.prisma
+├─ .env.example
+├─ netlify.toml
+├─ package.json
+├─ tsconfig.json
+└─ README.md
+
+Dependencies:
+- Runtime: `fastify`, `@fastify/cors`, `better-auth`, `@prisma/client`, `zod`, `undici`
+- Dev: `typescript`, `tsx`, `prisma`, `@types/node`, `@netlify/functions`, `netlify-cli`
+
+Commands (pnpm preferred; fallback to npm if needed):
+pnpm add fastify @fastify/cors better-auth @prisma/client zod undici
+pnpm add -D typescript tsx prisma @types/node @netlify/functions netlify-cli
+pnpm remove express @types/express || true
+
+Create/overwrite these files EXACTLY:
+
+package.json
+{
+  "name": "auth-service-better-auth",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=18.17" },
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "prisma:gen": "prisma generate",
+    "better-auth:gen": "npx @better-auth/cli generate prisma --yes",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:deploy": "prisma migrate deploy",
+    "smoke:signup": "curl -i -c cookie.txt -b cookie.txt -X POST http://localhost:4000/api/auth/sign-up/email -H 'Content-Type: application/json' --data '{\"email\":\"demo@example.com\",\"password\":\"Passw0rd!\"}'",
+    "smoke:signin": "curl -i -c cookie.txt -b cookie.txt -X POST http://localhost:4000/api/auth/sign-in/email -H 'Content-Type: application/json' --data '{\"email\":\"demo@example.com\",\"password\":\"Passw0rd!\"}'",
+    "smoke:session": "curl -i -c cookie.txt -b cookie.txt http://localhost:4000/api/auth/session",
+    "netlify:dev": "netlify dev",
+    "netlify:build": "netlify build",
+    "netlify:serve": "netlify serve"
+  }
+}
+
+tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": ["src", "netlify/functions", "prisma"]
+}
+
+.env.example
+PORT=4000
+BETTER_AUTH_URL=http://localhost:4000
+BETTER_AUTH_SECRET=changeme-long-random
+TRUSTED_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:4000
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/authdb?schema=public
+
+prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+# Models will be appended by the better-auth CLI.
+
+src/env.ts
+import { z } from "zod";
+const envSchema = z.object({
+  PORT: z.coerce.number().default(4000),
+  BETTER_AUTH_URL: z.string().url(),
+  BETTER_AUTH_SECRET: z.string().min(24),
+  TRUSTED_ORIGINS: z.string().default("http://localhost:3000"),
+  DATABASE_URL: z.string().url()
+});
+export const env = envSchema.parse(process.env);
+export const trustedOrigins = env.TRUSTED_ORIGINS.split(",").map(s => s.trim()).filter(Boolean);
+
+src/auth.ts
+import { betterAuth } from "better-auth";
+import { prismaAdapter } from "better-auth/adapters/prisma";
+import { PrismaClient } from "@prisma/client";
+import { trustedOrigins, env } from "./env.js";
+import { admin, organization } from "better-auth/plugins";
+import { apiKey } from "better-auth/plugins";
+import { jwt } from "better-auth/plugins";
+import { bearer } from "better-auth/plugins";
+const prisma = new PrismaClient();
+export const auth = betterAuth({
+  database: prismaAdapter(prisma, { provider: "postgresql" }),
+  url: env.BETTER_AUTH_URL,
+  session: { cookieCache: false },
+  trustedOrigins,
+  emailAndPassword: { enabled: true },
+  secret: env.BETTER_AUTH_SECRET,
+  plugins: [admin(), organization(), apiKey(), jwt(), bearer()]
+});
+
+src/server.ts
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import { auth } from "./auth.js";
+import { env, trustedOrigins } from "./env.js";
+const app = Fastify({ logger: true });
+await app.register(cors, {
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    cb(null, trustedOrigins.includes(origin));
+  },
+  credentials: true,
+  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization","X-Requested-With","x-api-key"]
+});
+app.route({
+  method: ["GET","POST"],
+  url: "/api/auth/*",
+  handler: async (request, reply) => {
+    const base = `http://${request.headers.host}`;
+    const url = new URL(request.url, base);
+    const headers = new Headers();
+    for (const [k,v] of Object.entries(request.headers)) if (v) headers.set(k, Array.isArray(v) ? v.join(",") : String(v));
+    const body = request.body ? (typeof request.body === "string" ? request.body : JSON.stringify(request.body)) : undefined;
+    const res = await auth.handler(new Request(url.toString(), { method: request.method, headers, body }));
+    reply.status(res.status);
+    res.headers.forEach((val, key) => reply.header(key, val));
+    reply.send(await res.text().catch(() => ""));
+  }
+});
+app.get("/me", async (req, reply) => {
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers)) if (v) headers.set(k, Array.isArray(v) ? v.join(",") : String(v));
+  reply.send(await auth.api.getSession({ headers }));
+});
+app.listen({ host: "0.0.0.0", port: env.PORT });
+
+netlify.toml
+[build]
+  functions = "netlify/functions"
+[[redirects]]
+  from = "/api/auth/*"
+  to = "/.netlify/functions/auth"
+  status = 200
+
+netlify/functions/auth.ts
+import type { Handler } from "@netlify/functions";
+import { auth } from "../../src/auth.js";
+import { trustedOrigins } from "../../src/env.js";
+const allowOrigin = (origin?: string) => (!origin ? (trustedOrigins[0] ?? "*") : (trustedOrigins.includes(origin) ? origin : (trustedOrigins[0] ?? "*")));
+export const handler: Handler = async (event) => {
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: {
+      "Access-Control-Allow-Origin": allowOrigin(event.headers.origin),
+      "Access-Control-Allow-Credentials": "true",
+      "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, x-api-key"
+    }, body: "" };
+  }
+  const url = new URL(event.rawUrl);
+  const headers = new Headers();
+  for (const [k,v] of Object.entries(event.headers)) if (v) headers.set(k, String(v));
+  const body = event.body ? (event.isBase64Encoded ? Buffer.from(event.body, "base64") : event.body) : undefined;
+  const res = await auth.handler(new Request(url.toString(), { method: event.httpMethod, headers, body }));
+  const singleHeaders: Record<string,string> = {
+    "Access-Control-Allow-Origin": allowOrigin(event.headers.origin),
+    "Access-Control-Allow-Credentials": "true"
+  };
+  const setCookies: string[] = [];
+  res.headers.forEach((val, key) => {
+    if (key.toLowerCase() === "set-cookie") setCookies.push(val);
+    else singleHeaders[key] = val;
+  });
+  return {
+    statusCode: res.status,
+    headers: singleHeaders,
+    multiValueHeaders: setCookies.length ? { "Set-Cookie": setCookies } : undefined,
+    body: await res.text().catch(() => "")
+  };
+};
+
+README.md (must include)
+- Overview, capabilities, architecture summary.
+- Env vars: PORT, BETTER_AUTH_URL, BETTER_AUTH_SECRET, TRUSTED_ORIGINS, DATABASE_URL.
+- DB setup:
+  - pnpm prisma:gen
+  - pnpm better-auth:gen
+  - pnpm prisma:migrate
+  - pnpm prisma:gen
+- Local dev: `pnpm dev`, visit `/api/auth/session`.
+- Smoke tests (copy-paste ready):
+  - Sign-up:
+    curl -i -c cookie.txt -b cookie.txt -X POST http://localhost:4000/api/auth/sign-up/email -H "Content-Type: application/json" --data '{"email":"demo@example.com","password":"Passw0rd!"}'
+  - Sign-in:
+    curl -i -c cookie.txt -b cookie.txt -X POST http://localhost:4000/api/auth/sign-in/email -H "Content-Type: application/json" --data '{"email":"demo@example.com","password":"Passw0rd!"}'
+  - Session:
+    curl -i -c cookie.txt -b cookie.txt http://localhost:4000/api/auth/session
+  - /me (cookie):
+    curl -i -c cookie.txt -b cookie.txt http://localhost:4000/me
+- S2S:
+  - Generate API Key for a “service user”; call protected endpoints with `x-api-key`.
+  - Issue JWT and verify via JWKS for polyglot consumers.
+- Netlify deployment:
+  - `netlify.toml` already routes `/api/auth/*` to function.
+  - Set env vars in Netlify UI: BETTER_AUTH_URL, BETTER_AUTH_SECRET, TRUSTED_ORIGINS, DATABASE_URL.
+  - Ensure prisma migrate deploy on build or first run.
+- Notes: cookieCache=false; frontends use `credentials: 'include'`.
+
+After creating/updating files:
+Commands to run (in order):
+pnpm i
+pnpm prisma:gen
+pnpm better-auth:gen
+pnpm prisma:migrate
+pnpm prisma:gen
+pnpm dev
+
+Smoke tests (must paste results):
+1) signup, 2) signin, 3) session, 4) /me; then confirm Set-Cookie, CORS headers, and 2xx statuses.
+
+Acceptance Criteria (must satisfy all):
+- No Express in codebase or dependencies.
+- All files & scripts exactly as specified.
+- TypeScript compiles with zero errors; `pnpm build` passes.
+- Local smoke tests return 2xx and set session cookie.
+- Netlify Functions serves `/api/auth/*`; cookies flow with credentials.
+- README is complete and accurate.
+
+Outputs to provide at the end:
+1) Compliance Report Table (before/after per audit item).
+2) Diff Summary (created/modified/removed files).
+3) Key file listings/snippets for src/auth.ts, src/server.ts, netlify/functions/auth.ts, netlify.toml, prisma/schema.prisma, package.json, tsconfig.json, .env.example.
+4) Commands executed & outputs.
+5) Smoke test transcripts (status lines + relevant headers).
+6) Explicit note confirming Express removed and Fastify only.
+
+END OF PROMPT
