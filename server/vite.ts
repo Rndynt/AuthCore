@@ -42,26 +42,29 @@ export async function setupVite(app: FastifyInstance, server: Server) {
     appType: "custom",
   });
 
-  // Register Vite dev middleware for assets
-  app.get("/@vite/*", async (request, reply) => {
-    const req = {
-      ...request.raw,
-      url: request.url,
-      method: request.method,
-      headers: request.headers,
-    };
-    const res = {
-      ...reply.raw,
-      setHeader: (name: string, value: string) => reply.header(name, value),
-      end: (data: string) => reply.send(data),
-    };
-    
-    return new Promise((resolve, reject) => {
-      vite.middlewares(req as any, res as any, (err?: Error) => {
-        if (err) reject(err);
-        else resolve(undefined);
+  // Register middleware to handle Vite HMR and asset requests
+  app.addHook('onRequest', async (request, reply) => {
+    // Only handle Vite-specific routes
+    if (request.url.startsWith('/@vite') || request.url.startsWith('/src/') || 
+        request.url.startsWith('/node_modules/') || request.url.endsWith('.ts') ||
+        request.url.endsWith('.tsx') || request.url.endsWith('.js') || request.url.endsWith('.jsx')) {
+      
+      const req = request.raw;
+      const res = reply.raw;
+      
+      // Create a promise to handle the middleware
+      await new Promise<void>((resolve, reject) => {
+        const next = (err?: Error) => {
+          if (err) reject(err);
+          else resolve();
+        };
+        
+        // Handle the middleware
+        vite.middlewares(req, res, next);
       });
-    });
+      
+      return reply.hijack();
+    }
   });
 
   // Handle frontend SPA routing - catch all non-API routes
