@@ -26,12 +26,6 @@ const envSchema = z.object({
 
 export const env = envSchema.parse(process.env);
 
-// Debug logging
-console.log("Environment configuration loaded:");
-console.log("BETTER_AUTH_URL:", env.BETTER_AUTH_URL);
-console.log("TRUSTED_ORIGINS:", env.TRUSTED_ORIGINS);
-console.log("PORT:", env.PORT);
-
 export const trustedOrigins = env.TRUSTED_ORIGINS
   .split(",")
   .map(s => s.trim())
