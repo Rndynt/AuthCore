@@ -126,7 +126,7 @@ model Organization {
 
   // Relations
   organizationMembers OrganizationMember[]
-  members            Member[]
+  members             Member[]
 
   logo        String?
   metadata    String?
