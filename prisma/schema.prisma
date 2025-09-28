@@ -125,7 +125,8 @@ model Organization {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  members OrganizationMember[]
+  organizationMembers OrganizationMember[]
+  members            Member[]
 
   logo        String?
   metadata    String?
