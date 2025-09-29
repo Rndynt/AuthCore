@@ -29,6 +29,7 @@ Successfully migrated GitHub import to Replit environment with the following con
 - Better Auth integration for email/password authentication
 - API endpoints available at `/api/auth/*` for authentication operations
 - Health check endpoint at `/healthz` and session info at `/me`
+- Documentation uses generic placeholder URLs for security
 
 ### Key Technical Fixes
 1. **Prisma Schema**: Cleaned up duplicate fields in Account model for Better Auth compatibility
