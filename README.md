@@ -36,9 +36,9 @@ AuthCore is a headless authentication microservice designed to serve multiple ap
 - **Multi-tenant organizations**: Role-based access control (owner/admin/member)
 - **Admin operations**: User management, session control, and development tooling
 
-**Live Deployments:**
-- **Production (Netlify)**: https://transity-auth.netlify.app
-- **Development (Replit)**: https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev
+**Example Deployments:**
+- **Production (Netlify)**: https://your-auth-service.netlify.app
+- **Development (Replit)**: https://your-replit-project.replit.dev
 
 This service is framework-agnostic and can be consumed by Next.js, React, Node.js, Go, or any HTTP client.
 
@@ -220,19 +220,19 @@ npm run dev
 ### Authentication Flow
 
 **Base URLs:**
-- **Netlify**: `https://transity-auth.netlify.app`
-- **Replit**: `https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev`
+- **Netlify**: `https://your-auth-service.netlify.app`
+- **Replit**: `https://your-replit-project.replit.dev`
 
 #### Sign Up
 
 ```bash
 # Netlify
-curl -i -c cookie.txt -X POST https://transity-auth.netlify.app/api/auth/sign-up/email \
+curl -i -c cookie.txt -X POST https://your-auth-service.netlify.app/api/auth/sign-up/email \
   -H "Content-Type: application/json" \
   --data '{"email":"demo@example.com","password":"SecurePass123!"}'
 
 # Replit
-curl -i -c cookie.txt -X POST https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/api/auth/sign-up/email \
+curl -i -c cookie.txt -X POST https://your-replit-project.replit.dev/api/auth/sign-up/email \
   -H "Content-Type: application/json" \
   --data '{"email":"demo@example.com","password":"SecurePass123!"}'
 ```
@@ -243,12 +243,12 @@ curl -i -c cookie.txt -X POST https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10
 
 ```bash
 # Netlify
-curl -i -c cookie.txt -X POST https://transity-auth.netlify.app/api/auth/sign-in/email \
+curl -i -c cookie.txt -X POST https://your-auth-service.netlify.app/api/auth/sign-in/email \
   -H "Content-Type: application/json" \
   --data '{"email":"demo@example.com","password":"SecurePass123!"}'
 
 # Replit
-curl -i -c cookie.txt -X POST https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/api/auth/sign-in/email \
+curl -i -c cookie.txt -X POST https://your-replit-project.replit.dev/api/auth/sign-in/email \
   -H "Content-Type: application/json" \
   --data '{"email":"demo@example.com","password":"SecurePass123!"}'
 ```
@@ -257,10 +257,10 @@ curl -i -c cookie.txt -X POST https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10
 
 ```bash
 # Netlify
-curl -i -b cookie.txt https://transity-auth.netlify.app/api/auth/session
+curl -i -b cookie.txt https://your-auth-service.netlify.app/api/auth/session
 
 # Replit
-curl -i -b cookie.txt https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/api/auth/session
+curl -i -b cookie.txt https://your-replit-project.replit.dev/api/auth/session
 ```
 
 #### Identity Resolution (`/me`)
@@ -269,13 +269,13 @@ The `/me` endpoint resolves identity from cookie, API key, or Bearer token:
 
 ```bash
 # Using cookie
-curl -i -b cookie.txt https://transity-auth.netlify.app/me
+curl -i -b cookie.txt https://your-auth-service.netlify.app/me
 
 # Using API key (see S2S section)
-curl -i -H "x-api-key: YOUR_API_KEY" https://transity-auth.netlify.app/me
+curl -i -H "x-api-key: YOUR_API_KEY" https://your-auth-service.netlify.app/me
 
 # Using Bearer token (see S2S section)
-curl -i -H "Authorization: Bearer YOUR_JWT" https://transity-auth.netlify.app/me
+curl -i -H "Authorization: Bearer YOUR_JWT" https://your-auth-service.netlify.app/me
 ```
 
 ## Service-to-Service Patterns
@@ -288,14 +288,14 @@ API Keys create a mock session of the key owner, enabling the same RBAC checks a
 
 ```bash
 # 1. Create API Key (requires authenticated session)
-curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/api-keys \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.app/dev/api-keys \
   -H "Content-Type: application/json" \
   --data '{"label":"orders-service","expiresInDays":90}'
 
 # Response: {"key":"ak_1234567890abcdef","keyId":"key_id","userId":"user_id",...}
 
 # 2. Use API Key for authentication
-curl -i -H "x-api-key: ak_1234567890abcdef" https://transity-auth.netlify.app/me
+curl -i -H "x-api-key: ak_1234567890abcdef" https://your-auth-service.netlify.app/me
 ```
 
 ### JWT/Bearer Token + JWKS
@@ -306,17 +306,17 @@ For stateless, offline verification by resource servers.
 
 ```bash
 # 1. Issue short-lived JWT (requires authenticated session)
-curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/jwt/issue \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.app/dev/jwt/issue \
   -H "Content-Type: application/json" \
   --data '{"ttlSeconds":1800,"audience":"orders-api","scopes":["orders:read"]}'
 
 # Response: {"token":"eyJhbGciOiJSUzI1NiIs...","expiresAt":"2024-01-01T12:00:00Z"}
 
 # 2. Use Bearer token
-curl -i -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIs..." https://transity-auth.netlify.app/me
+curl -i -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIs..." https://your-auth-service.netlify.app/me
 
 # 3. Resource servers verify offline using JWKS
-curl -s https://transity-auth.netlify.app/dev/jwks.json
+curl -s https://your-auth-service.netlify.app/dev/jwks.json
 ```
 
 #### Node.js JWT Verification Example
@@ -325,13 +325,13 @@ curl -s https://transity-auth.netlify.app/dev/jwks.json
 import { jwtVerify, createRemoteJWKSet } from 'jose'
 
 const JWKS = createRemoteJWKSet(
-  new URL('https://transity-auth.netlify.app/dev/jwks.json')
+  new URL('https://your-auth-service.netlify.app/dev/jwks.json')
 )
 
 async function verifyJWT(token: string) {
   try {
     const { payload } = await jwtVerify(token, JWKS, {
-      issuer: 'https://transity-auth.netlify.app',
+      issuer: 'https://your-auth-service.netlify.app',
       audience: 'orders-api'
     })
     return payload
@@ -357,24 +357,24 @@ Organizations enable multi-tenancy with role-based access control.
 
 ```bash
 # 1. Create Organization
-curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/orgs \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.app/dev/orgs \
   -H "Content-Type: application/json" \
   --data '{"name":"Acme Corporation"}'
 
 # Response: {"org":{"id":"org_1234","name":"Acme Corporation","slug":"acme-corporation"}}
 
 # 2. Add Member
-curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/orgs/org_1234/members \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.app/dev/orgs/org_1234/members \
   -H "Content-Type: application/json" \
   --data '{"email":"member@example.com","role":"admin"}'
 
 # 3. Update Member Role
-curl -i -c cookie.txt -b cookie.txt -X PATCH https://transity-auth.netlify.app/dev/orgs/org_1234/members/user_5678 \
+curl -i -c cookie.txt -b cookie.txt -X PATCH https://your-auth-service.netlify.app/dev/orgs/org_1234/members/user_5678 \
   -H "Content-Type: application/json" \
   --data '{"role":"owner"}'
 
 # 4. List Members
-curl -i https://transity-auth.netlify.app/dev/orgs/org_1234/members
+curl -i https://your-auth-service.netlify.app/dev/orgs/org_1234/members
 ```
 
 **Downstream Context**: Pass `X-Org-Id: org_1234` header to your microservices to scope operations to the specific organization.
@@ -389,15 +389,15 @@ Admin capabilities include user management, session control, and system operatio
 
 ```bash
 # List Users (admin only)
-curl -i -c cookie.txt -b cookie.txt https://transity-auth.netlify.app/dev/admin/users?limit=50
+curl -i -c cookie.txt -b cookie.txt https://your-auth-service.netlify.app/dev/admin/users?limit=50
 
 # Impersonate User (DEV ONLY - returns JWT)
-curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/admin/impersonate \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.app/dev/admin/impersonate \
   -H "Content-Type: application/json" \
   --data '{"userId":"user_1234","as":"jwt"}'
 
 # Impersonate User (DEV ONLY - sets session cookie)
-curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/admin/impersonate \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.app/dev/admin/impersonate \
   -H "Content-Type: application/json" \
   --data '{"userId":"user_1234","as":"cookie"}'
 ```
@@ -435,102 +435,102 @@ All dev endpoints support three authentication methods:
 ### Usage Examples
 
 **Base URLs:**
-- **Netlify**: `https://transity-auth.netlify.app`
-- **Replit**: `https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev`
+- **Netlify**: `https://your-auth-service.netlify.app`
+- **Replit**: `https://your-replit-project.replit.dev`
 
 #### Identity & Status
 
 ```bash
 # WHOAMI (cookie-based)
-curl -i -c cookie.txt -b cookie.txt https://transity-auth.netlify.app/dev/whoami
-curl -i -c cookie.txt -b cookie.txt https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/whoami
+curl -i -c cookie.txt -b cookie.txt https://your-auth-service.netlify.app/dev/whoami
+curl -i -c cookie.txt -b cookie.txt https://your-replit-project.replit.dev/dev/whoami
 
 # WHOAMI (API key)
-curl -i -H "x-api-key: YOUR_API_KEY" https://transity-auth.netlify.app/dev/whoami
+curl -i -H "x-api-key: YOUR_API_KEY" https://your-auth-service.netlify.app/dev/whoami
 
 # WHOAMI (Bearer token)
-curl -i -H "Authorization: Bearer YOUR_JWT" https://transity-auth.netlify.app/dev/whoami
+curl -i -H "Authorization: Bearer YOUR_JWT" https://your-auth-service.netlify.app/dev/whoami
 ```
 
 #### API Key Management
 
 ```bash
 # Create API Key
-curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/api-keys \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.app/dev/api-keys \
   -H "Content-Type: application/json" \
   --data '{"label":"orders-svc","expiresInDays":90}'
 
-curl -i -c cookie.txt -b cookie.txt -X POST https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/api-keys \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-replit-project.replit.dev/dev/api-keys \
   -H "Content-Type: application/json" \
   --data '{"label":"orders-svc","expiresInDays":90}'
 
 # List API Keys
-curl -i -c cookie.txt -b cookie.txt https://transity-auth.netlify.app/dev/api-keys
-curl -i -c cookie.txt -b cookie.txt https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/api-keys
+curl -i -c cookie.txt -b cookie.txt https://your-auth-service.netlify.app/dev/api-keys
+curl -i -c cookie.txt -b cookie.txt https://your-replit-project.replit.dev/dev/api-keys
 
 # Revoke API Key
-curl -i -c cookie.txt -b cookie.txt -X DELETE https://transity-auth.netlify.app/dev/api-keys/KEY_ID
-curl -i -c cookie.txt -b cookie.txt -X DELETE https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/api-keys/KEY_ID
+curl -i -c cookie.txt -b cookie.txt -X DELETE https://your-auth-service.netlify.app/dev/api-keys/KEY_ID
+curl -i -c cookie.txt -b cookie.txt -X DELETE https://your-replit-project.replit.dev/dev/api-keys/KEY_ID
 ```
 
 #### JWT & JWKS
 
 ```bash
 # Issue JWT Token
-curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/jwt/issue \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.app/dev/jwt/issue \
   -H "Content-Type: application/json" \
   --data '{"ttlSeconds":1800,"audience":"orders-api","scopes":["orders:read"]}'
 
-curl -i -c cookie.txt -b cookie.txt -X POST https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/jwt/issue \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-replit-project.replit.dev/dev/jwt/issue \
   -H "Content-Type: application/json" \
   --data '{"ttlSeconds":1800,"audience":"orders-api","scopes":["orders:read"]}'
 
 # Get JWKS (Public endpoint)
-curl -s https://transity-auth.netlify.app/dev/jwks.json
-curl -s https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/jwks.json
+curl -s https://your-auth-service.netlify.app/dev/jwks.json
+curl -s https://your-replit-project.replit.dev/dev/jwks.json
 ```
 
 #### Organization Management
 
 ```bash
 # Create Organization
-curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/orgs \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.app/dev/orgs \
   -H "Content-Type: application/json" \
   --data '{"name":"Acme Corp"}'
 
-curl -i -c cookie.txt -b cookie.txt -X POST https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/orgs \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-replit-project.replit.dev/dev/orgs \
   -H "Content-Type: application/json" \
   --data '{"name":"Acme Corp"}'
 
 # Add Member
-curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/orgs/ORG_ID/members \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.app/dev/orgs/ORG_ID/members \
   -H "Content-Type: application/json" \
   --data '{"email":"member@example.com","role":"admin"}'
 
 # Update Member Role
-curl -i -c cookie.txt -b cookie.txt -X PATCH https://transity-auth.netlify.app/dev/orgs/ORG_ID/members/USER_ID \
+curl -i -c cookie.txt -b cookie.txt -X PATCH https://your-auth-service.netlify.app/dev/orgs/ORG_ID/members/USER_ID \
   -H "Content-Type: application/json" \
   --data '{"role":"owner"}'
 
 # List Members
-curl -i https://transity-auth.netlify.app/dev/orgs/ORG_ID/members
-curl -i https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/orgs/ORG_ID/members
+curl -i https://your-auth-service.netlify.app/dev/orgs/ORG_ID/members
+curl -i https://your-replit-project.replit.dev/dev/orgs/ORG_ID/members
 ```
 
 #### Admin Functions
 
 ```bash
 # List Users (admin only)
-curl -i -c cookie.txt -b cookie.txt https://transity-auth.netlify.app/dev/admin/users?limit=50
-curl -i -c cookie.txt -b cookie.txt https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/admin/users?limit=50
+curl -i -c cookie.txt -b cookie.txt https://your-auth-service.netlify.app/dev/admin/users?limit=50
+curl -i -c cookie.txt -b cookie.txt https://your-replit-project.replit.dev/dev/admin/users?limit=50
 
 # Impersonate User - Return JWT (DEV ONLY)
-curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/admin/impersonate \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.app/dev/admin/impersonate \
   -H "Content-Type: application/json" \
   --data '{"userId":"USER_ID","as":"jwt"}'
 
 # Impersonate User - Set Cookie (DEV ONLY)
-curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/admin/impersonate \
+curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.app/dev/admin/impersonate \
   -H "Content-Type: application/json" \
   --data '{"userId":"USER_ID","as":"cookie"}'
 ```
@@ -561,7 +561,7 @@ curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/de
 
 ```javascript
 // React/Next.js fetch example
-const response = await fetch('https://transity-auth.netlify.app/api/auth/sign-in/email', {
+const response = await fetch('https://your-auth-service.netlify.app/api/auth/sign-in/email', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -657,8 +657,8 @@ const response = await fetch('https://transity-auth.netlify.app/api/auth/sign-in
 
 ```bash
 #!/bin/bash
-BASE_NETLIFY="https://transity-auth.netlify.app"
-BASE_REPLIT="https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev"
+BASE_NETLIFY="https://your-auth-service.netlify.app"
+BASE_REPLIT="https://your-replit-project.replit.dev"
 
 echo "=== Testing Netlify ==="
 
@@ -696,7 +696,7 @@ curl -i -b cookie-replit.txt $BASE_REPLIT/me
 
 ```bash
 #!/bin/bash
-BASE="https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev"
+BASE="https://your-replit-project.replit.dev"
 
 # Prerequisites: Sign in first
 curl -i -c cookie.txt -X POST $BASE/api/auth/sign-in/email \
