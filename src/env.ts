@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import { z } from "zod";
 
 // Helper to get the development domain for Replit
@@ -21,7 +24,8 @@ const envSchema = z.object({
   BETTER_AUTH_URL: z.string().url().default(getDevUrl()),
   BETTER_AUTH_SECRET: z.string().min(24).default("default-development-secret-key-change-in-production-min-24-chars"),
   TRUSTED_ORIGINS: z.string().default(getDefaultTrustedOrigins()),
-  DATABASE_URL: z.string().url()
+  DATABASE_URL: z.string().url(),
+  ENABLE_DEV_ENDPOINTS: z.string().default("false")
 });
 
 export const env = envSchema.parse(process.env);
@@ -30,3 +34,5 @@ export const trustedOrigins = env.TRUSTED_ORIGINS
   .split(",")
   .map(s => s.trim())
   .filter(Boolean);
+
+export const devEnabled = process.env.ENABLE_DEV_ENDPOINTS === 'true';

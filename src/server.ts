@@ -1,7 +1,8 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { auth } from "./auth.js";
-import { env, trustedOrigins } from "./env.js";
+import { env, trustedOrigins, devEnabled } from "./env.js";
+import { registerDevEndpoints } from "./dev.js";
 
 const app = Fastify({ logger: true });
 
@@ -68,6 +69,10 @@ app.get("/me", async (req, reply) => {
   const session = await auth.api.getSession({ headers });
   reply.send(session);
 });
+
+// Register dev endpoints
+console.log("ENABLE_DEV_ENDPOINTS:", process.env.ENABLE_DEV_ENDPOINTS, "devEnabled:", devEnabled);
+registerDevEndpoints(app);
 
 const startServer = async () => {
   try {
