@@ -1,0 +1,54 @@
+The Netlify deploy errored, with the following guidance provided:
+
+**Diagnosis:**
+The build failed with a TypeScript error at [line 71](#L71) in the file `src/dev.ts`. The error states "Property 'organizationInvite' does not exist on type 'InferAPI'".
+
+**Solution:**
+1. Verify that the `organizationInvite` property is correctly defined in the type 'InferAPI' in the codebase.
+2. If `organizationInvite` is a property from an external package, ensure that the package is included in the `package.json` file or the file was committed to the repository. If needed, add the package to the external configuration in the build settings.
+
+The relevant error logs are:
+
+Line 60: [36m[1m​[22m[39m
+Line 61: [36m[1m❯ Loading extensions[22m[39m
+Line 62:    - neon
+Line 63: [96m[1m​[22m[39m
+Line 64: [96m[1mBuild command from Netlify app                                [22m[39m
+Line 65: [96m[1m────────────────────────────────────────────────────────────────[22m[39m
+Line 66: ​
+Line 67: [36m$ npm run build[39m
+Line 68: > auth-service-better-auth@1.0.0 build
+Line 69: > tsc -p tsconfig.json
+Line 70: Failed during stage 'building site': Build script returned non-zero exit code: 2
+Line 71: src/dev.ts(292,39): error TS2339: Property 'organizationInvite' does not exist on type 'InferAPI<{ ok: { <AsResponse extends boo
+Line 72: [91m[1m​[22m[39m
+Line 73: [91m[1m"build.command" failed                                        [22m[39m
+Line 74: [91m[1m────────────────────────────────────────────────────────────────[22m[39m
+Line 75: ​
+Line 76:   [31m[1mError message[22m[39m
+Line 77:   Command failed with exit code 2: npm run build
+Line 78: ​
+Line 79:   [31m[1mError location[22m[39m
+Line 80:   In Build command from Netlify app:
+Line 81:   npm run build
+Line 82: ​
+Line 83:   [31m[1mResolved config[22m[39m
+Line 84:   build:
+Line 85:     command: npm run build
+Line 86:     commandOrigin: ui
+Line 87:     environment:
+Line 88:       - BETTER_AUTH_SECRET
+Line 89:       - BETTER_AUTH_URL
+Line 90:       - DATABASE_URL
+Line 91:       - TRUSTED_ORIGINS
+Line 92:     publish: /opt/build/repo
+Line 93:     publishOrigin: default
+Line 94:   functionsDirectory: /opt/build/repo/netlify/functions
+Line 95:   redirects:
+Line 96:     - from: /api/auth/*
+      status: 200
+      to: /.netlify/functions/auth
+  redirectsOrigin: config
+Line 97: Build failed due to a user error: Build script returned non-zero exit code: 2
+Line 98: Failing build: Failed to build site
+Line 99: Finished processing build request in 22.029s

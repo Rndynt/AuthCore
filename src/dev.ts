@@ -289,7 +289,7 @@ export function registerDevEndpoints(app: FastifyInstance) {
         
         await requireOrgRole(headers, params.orgId, ["owner", "admin"]);
         
-        const member = await auth.api.organizationInvite({
+        const member = await auth.api.createInvitation({
           headers,
           body: {
             organizationId: params.orgId,
