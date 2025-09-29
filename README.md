@@ -1,235 +1,803 @@
-# Auth Service (Fastify + better-auth) with Prisma Postgres and Netlify Functions
+# AuthCore — Fastify + Better-Auth (Headless Authentication Service)
 
-Capabilities:
-- Email/password login
-- Admin and Organization (RBAC) plugins
-- API Key for service-to-service (x-api-key creates mock session)
-- JWT (+JWKS) for offline verification (polyglot services)
-- CORS credentials + trustedOrigins
-- Local Fastify dev server; production via Netlify Functions
+![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-brightgreen)
+![Database](https://img.shields.io/badge/Database-PostgreSQL%20%2B%20Prisma-blue)
+![Deployment](https://img.shields.io/badge/Deploy-Netlify%20Functions-00C7B7)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-## Environment
-Copy .env.example to .env for local dev and set:
-- BETTER_AUTH_URL=http://localhost:4000 (local) or your Netlify URL in prod
-- BETTER_AUTH_SECRET=<long random string>
-- TRUSTED_ORIGINS=https://your-frontend-domain,http://localhost:3000
-- DATABASE_URL=postgresql connection string
+## Table of Contents
 
-## Database
-pnpm prisma:gen
-pnpm better-auth:gen
-pnpm prisma:migrate
-pnpm prisma:gen
+- [Overview](#overview)
+- [Feature Matrix](#feature-matrix)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Environment Variables](#environment-variables)
+- [Database Setup](#database-setup)
+- [Installation & Run](#installation--run)
+- [HTTP Endpoints (Core)](#http-endpoints-core)
+- [Service-to-Service Patterns](#service-to-service-patterns)
+- [Organizations (Multi-Tenant)](#organizations-multi-tenant)
+- [Admin Operations](#admin-operations)
+- [DEV QA Endpoints](#dev-qa-endpoints)
+- [CORS & Cookies](#cors--cookies)
+- [Security Notes](#security-notes)
+- [Troubleshooting](#troubleshooting)
+- [Smoke Tests](#smoke-tests)
+- [Roadmap](#roadmap)
+- [License](#license)
+- [Changelog](#changelog)
 
-## Run locally
-pnpm dev
-Visit http://localhost:4000/api/auth/session
+## Overview
 
-## Smoke tests (local)
-Sign-up:
-curl -i -c cookie.txt -b cookie.txt -X POST http://localhost:4000/api/auth/sign-up/email -H "Content-Type: application/json" --data '{"email":"demo@example.com","password":"Passw0rd!"}'
-Sign-in:
-curl -i -c cookie.txt -b cookie.txt -X POST http://localhost:4000/api/auth/sign-in/email -H "Content-Type: application/json" --data '{"email":"demo@example.com","password":"Passw0rd!"}'
-Get session:
-curl -i -c cookie.txt -b cookie.txt http://localhost:4000/api/auth/session
+AuthCore is a headless authentication microservice designed to serve multiple applications and microservices. It provides comprehensive authentication and authorization capabilities including:
 
-## Service-to-service
-- Create a dedicated "service user" and generate an API key via Admin/API.
-- Call protected routes with header: x-api-key: <key>.
-- For polyglot services use JWT and validate against JWKS exposed by the JWT plugin.
+- **End-user authentication**: Email/password with cookie sessions
+- **Service-to-service auth**: API Keys and JWT/Bearer tokens with offline verification
+- **Multi-tenant organizations**: Role-based access control (owner/admin/member)
+- **Admin operations**: User management, session control, and development tooling
 
-## Netlify
-- netlify.toml already redirects /api/auth/* to the function "auth".
-- Set Environment Variables in Netlify UI:
-  - BETTER_AUTH_URL=https://<your-netlify-site>.netlify.app
-  - BETTER_AUTH_SECRET=<long random>
-  - TRUSTED_ORIGINS=https://<your-frontend-domain>,http://localhost:3000
-  - DATABASE_URL=postgres (Netlify Postgres or external managed)
-- Deploy via connected repo; ensure "pnpm prisma:deploy" runs on build (Netlify will run build; you can add a postbuild hook or rely on prisma generate/deploy in build pipeline).
+**Live Deployments:**
+- **Production (Netlify)**: https://transity-auth.netlify.app
+- **Development (Replit)**: https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev
 
-## Notes
-- For multiple cookies, Netlify requires multiValueHeaders; using session.cookieCache=false keeps it to a single cookie by default.
-- Frontends must send credentials: 'include' and be listed in TRUSTED_ORIGINS.
-- This service is framework-agnostic for consumers: Next.js/React/Node/Go can consume APIs and JWTs.
+This service is framework-agnostic and can be consumed by Next.js, React, Node.js, Go, or any HTTP client.
+
+## Feature Matrix
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **End-User Auth** | ✅ | Email/password signup, signin, cookie sessions |
+| **Session Inspect** | ✅ | GET `/me` endpoint resolves identity from cookie/API key/Bearer |
+| **API Key Auth** | ✅ | S2S via `x-api-key` header (creates mock session) |
+| **JWT/Bearer** | ✅ | Short-lived JWT tokens with JWKS for offline verification |
+| **Organizations** | ✅ | Multi-tenant with roles (owner/admin/member) |
+| **Admin Panel** | ✅ | List users, impersonation (dev), key management |
+| **CORS + Credentials** | ✅ | trustedOrigins with cookie credential support |
+| **Fastify Transport** | ✅ | High-performance async HTTP server |
+| **Netlify Deploy** | ✅ | Serverless functions with redirects |
+| **Replit Dev** | ✅ | Cloud development environment |
+| **QA Endpoints** | ✅ | Comprehensive dev/testing endpoints (guarded) |
+
+## Architecture
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Frontend      │    │   Microservice   │    │   Admin Panel   │
+│   (React/Next)  │    │   (Node/Go/etc)  │    │   (Internal)    │
+└─────────┬───────┘    └─────────┬────────┘    └─────────┬───────┘
+          │                      │                       │
+          │ Cookie Session       │ x-api-key /          │ Cookie +
+          │                      │ Authorization:        │ Admin Role
+          │                      │ Bearer JWT            │
+          └──────────┬───────────┴─────────┬─────────────┘
+                     │                     │
+                ┌────▼─────────────────────▼────┐
+                │         AuthCore              │
+                │    Fastify + Better-Auth      │
+                │                               │
+                │  /api/auth/*  │  /me  │ /dev/*│
+                └────────┬──────────────────────┘
+                         │
+                    ┌────▼────┐    ┌─────────────────┐
+                    │ Prisma  │────│   PostgreSQL    │
+                    │ Adapter │    │  (Neon/Cloud)   │
+                    └─────────┘    └─────────────────┘
+
+Netlify Deployment:
+/api/auth/* → /.netlify/functions/auth
+
+JWKS Verification (Offline):
+Resource Service → GET /dev/jwks.json → Verify JWT locally
+```
+
+## Prerequisites
+
+- **Node.js** >= 18
+- **Package Manager**: npm, pnpm, or yarn
+- **Database**: PostgreSQL (Neon recommended for serverless)
+
+## Environment Variables
+
+Create a `.env` file or set environment variables:
+
+```env
+# Server Configuration
+PORT=5000
+BETTER_AUTH_URL=https://your-auth-service-domain.com
+BETTER_AUTH_SECRET=your-super-long-random-secret-key-min-24-characters
+
+# Database (PostgreSQL with TLS for serverless)
+DATABASE_URL=postgresql://user:password@host:port/database?sslmode=require
+
+# CORS & Security
+TRUSTED_ORIGINS=https://your-frontend.com,https://your-admin-panel.com,http://localhost:3000
+
+# Development Only
+ENABLE_DEV_ENDPOINTS=false
+```
+
+### Environment Notes
+
+- **PORT**: Replit automatically sets `process.env.PORT`. Listen on `0.0.0.0:${PORT}`
+- **BETTER_AUTH_URL**: Must match your public domain (Netlify in prod, Replit in dev)
+- **TRUSTED_ORIGINS**: Comma-separated list of domains allowed for CORS with credentials
+- **DATABASE_URL**: Include `?sslmode=require` for serverless PostgreSQL (Neon, Supabase, etc.)
+- **ENABLE_DEV_ENDPOINTS**: Set to `true` only in development/QA. NEVER in production.
+
+## Database Setup
+
+### Recommended: Neon PostgreSQL
+
+```bash
+# Example connection string
+DATABASE_URL="postgresql://user:password@ep-example.us-east-2.aws.neon.tech/neondb?sslmode=require"
+```
+
+### Schema Migration Sequence
+
+```bash
+# 1. Generate Prisma client
+npm run prisma:gen
+
+# 2. Generate Better-Auth extensions
+npx @better-auth/cli generate prisma --yes
+
+# 3. Run migrations (production) OR dev migration
+npm run prisma:deploy || npm run prisma:migrate
+
+# 4. Regenerate client after schema changes
+npm run prisma:gen
+```
+
+### Fresh Development Only
+
+If migrations are unavailable, you can push schema directly:
+```bash
+npx prisma db push
+```
+
+**Note**: Use migrations in production for safe schema changes.
+
+## Installation & Run
+
+### Netlify Deployment
+
+1. **Set Environment Variables** in Netlify dashboard:
+   ```
+   BETTER_AUTH_URL=https://your-site.netlify.app
+   BETTER_AUTH_SECRET=your-secret-key
+   TRUSTED_ORIGINS=https://your-frontend.com
+   DATABASE_URL=postgresql://...?sslmode=require
+   ENABLE_DEV_ENDPOINTS=false
+   ```
+
+2. **netlify.toml** (already configured):
+   ```toml
+   [[redirects]]
+     from = "/api/auth/*"
+     to = "/.netlify/functions/auth"
+     status = 200
+   ```
+
+3. **Test Build Locally**:
+   ```bash
+   npm run netlify:build
+   npm run netlify:serve
+   ```
+
+### Replit Development
+
+1. **Set Secrets** in Replit Secrets tab:
+   - `DATABASE_URL`
+   - `BETTER_AUTH_SECRET`
+   - `TRUSTED_ORIGINS`
+   - `ENABLE_DEV_ENDPOINTS=true`
+
+2. **Run Development Server**:
+   ```bash
+   npm run dev
+   ```
+   Listens on `0.0.0.0:${PORT}` (automatically configured)
+
+### Local Development
+
+```bash
+# Install dependencies
+npm install
+
+# Set up database
+npm run prisma:gen
+npx @better-auth/cli generate prisma --yes
+npm run prisma:migrate
+npm run prisma:gen
+
+# Start development server
+npm run dev
+```
+
+## HTTP Endpoints (Core)
+
+### Authentication Flow
+
+**Base URLs:**
+- **Netlify**: `https://transity-auth.netlify.app`
+- **Replit**: `https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev`
+
+#### Sign Up
+
+```bash
+# Netlify
+curl -i -c cookie.txt -X POST https://transity-auth.netlify.app/api/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  --data '{"email":"demo@example.com","password":"SecurePass123!"}'
+
+# Replit
+curl -i -c cookie.txt -X POST https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/api/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  --data '{"email":"demo@example.com","password":"SecurePass123!"}'
+```
+
+**Response**: Sets `better-auth.session_token` cookie + JSON user object
+
+#### Sign In
+
+```bash
+# Netlify
+curl -i -c cookie.txt -X POST https://transity-auth.netlify.app/api/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  --data '{"email":"demo@example.com","password":"SecurePass123!"}'
+
+# Replit
+curl -i -c cookie.txt -X POST https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/api/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  --data '{"email":"demo@example.com","password":"SecurePass123!"}'
+```
+
+#### Get Session
+
+```bash
+# Netlify
+curl -i -b cookie.txt https://transity-auth.netlify.app/api/auth/session
+
+# Replit
+curl -i -b cookie.txt https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/api/auth/session
+```
+
+#### Identity Resolution (`/me`)
+
+The `/me` endpoint resolves identity from cookie, API key, or Bearer token:
+
+```bash
+# Using cookie
+curl -i -b cookie.txt https://transity-auth.netlify.app/me
+
+# Using API key (see S2S section)
+curl -i -H "x-api-key: YOUR_API_KEY" https://transity-auth.netlify.app/me
+
+# Using Bearer token (see S2S section)
+curl -i -H "Authorization: Bearer YOUR_JWT" https://transity-auth.netlify.app/me
+```
+
+## Service-to-Service Patterns
+
+### API Key Authentication
+
+API Keys create a mock session of the key owner, enabling the same RBAC checks as user sessions.
+
+**Use case**: Internal microservices, background jobs, service accounts
+
+```bash
+# 1. Create API Key (requires authenticated session)
+curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/api-keys \
+  -H "Content-Type: application/json" \
+  --data '{"label":"orders-service","expiresInDays":90}'
+
+# Response: {"key":"ak_1234567890abcdef","keyId":"key_id","userId":"user_id",...}
+
+# 2. Use API Key for authentication
+curl -i -H "x-api-key: ak_1234567890abcdef" https://transity-auth.netlify.app/me
+```
+
+### JWT/Bearer Token + JWKS
+
+For stateless, offline verification by resource servers.
+
+**Use case**: Distributed microservices, third-party integrations, mobile apps
+
+```bash
+# 1. Issue short-lived JWT (requires authenticated session)
+curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/jwt/issue \
+  -H "Content-Type: application/json" \
+  --data '{"ttlSeconds":1800,"audience":"orders-api","scopes":["orders:read"]}'
+
+# Response: {"token":"eyJhbGciOiJSUzI1NiIs...","expiresAt":"2024-01-01T12:00:00Z"}
+
+# 2. Use Bearer token
+curl -i -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIs..." https://transity-auth.netlify.app/me
+
+# 3. Resource servers verify offline using JWKS
+curl -s https://transity-auth.netlify.app/dev/jwks.json
+```
+
+#### Node.js JWT Verification Example
+
+```typescript
+import { jwtVerify, createRemoteJWKSet } from 'jose'
+
+const JWKS = createRemoteJWKSet(
+  new URL('https://transity-auth.netlify.app/dev/jwks.json')
+)
+
+async function verifyJWT(token: string) {
+  try {
+    const { payload } = await jwtVerify(token, JWKS, {
+      issuer: 'https://transity-auth.netlify.app',
+      audience: 'orders-api'
+    })
+    return payload
+  } catch (error) {
+    throw new Error('Invalid token')
+  }
+}
+```
+
+## Organizations (Multi-Tenant)
+
+Organizations enable multi-tenancy with role-based access control.
+
+**Concepts:**
+- **Organization**: Tenant/workspace containing users
+- **Roles**: `owner` (full control), `admin` (manage members), `member` (basic access)
+- **Membership**: User's role within a specific organization
+
+**Typical Flow:**
+1. Create organization → 2. Invite/add members → 3. Set roles → 4. Pass org context to downstream services
+
+### Organization Management (Dev Endpoints)
+
+```bash
+# 1. Create Organization
+curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/orgs \
+  -H "Content-Type: application/json" \
+  --data '{"name":"Acme Corporation"}'
+
+# Response: {"org":{"id":"org_1234","name":"Acme Corporation","slug":"acme-corporation"}}
+
+# 2. Add Member
+curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/orgs/org_1234/members \
+  -H "Content-Type: application/json" \
+  --data '{"email":"member@example.com","role":"admin"}'
+
+# 3. Update Member Role
+curl -i -c cookie.txt -b cookie.txt -X PATCH https://transity-auth.netlify.app/dev/orgs/org_1234/members/user_5678 \
+  -H "Content-Type: application/json" \
+  --data '{"role":"owner"}'
+
+# 4. List Members
+curl -i https://transity-auth.netlify.app/dev/orgs/org_1234/members
+```
+
+**Downstream Context**: Pass `X-Org-Id: org_1234` header to your microservices to scope operations to the specific organization.
+
+## Admin Operations
+
+Admin capabilities include user management, session control, and system operations.
+
+**Security**: Protect admin routes behind private networks, VPNs, or internal-only domains.
+
+### Admin Endpoints (Dev Mode)
+
+```bash
+# List Users (admin only)
+curl -i -c cookie.txt -b cookie.txt https://transity-auth.netlify.app/dev/admin/users?limit=50
+
+# Impersonate User (DEV ONLY - returns JWT)
+curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/admin/impersonate \
+  -H "Content-Type: application/json" \
+  --data '{"userId":"user_1234","as":"jwt"}'
+
+# Impersonate User (DEV ONLY - sets session cookie)
+curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/admin/impersonate \
+  -H "Content-Type: application/json" \
+  --data '{"userId":"user_1234","as":"cookie"}'
+```
 
 ## DEV QA Endpoints
 
-**⚠️ WARNING: Do NOT enable in production!**
+⚠️ **CRITICAL WARNING**: These endpoints are for development and QA only. **NEVER enable in production**.
 
-Enable comprehensive QA endpoints for testing JWT, Bearer tokens, API Keys, Admin functionality, and Organization management by setting:
-
-```bash
-ENABLE_DEV_ENDPOINTS=true
-```
+Enable by setting `ENABLE_DEV_ENDPOINTS=true`. All `/dev/*` routes return 404 when disabled.
 
 ### Authentication Methods
 
-All `/dev/*` endpoints support three authentication methods:
-- **Cookie**: Session-based (from sign-in)
+All dev endpoints support three authentication methods:
+- **Cookie**: Standard session-based (from sign-in)
 - **API Key**: Header `x-api-key: <key>`
 - **Bearer Token**: Header `Authorization: Bearer <jwt>`
 
 ### Available Endpoints
 
-#### Identity & Status
-- `GET /dev/whoami` - Current user identity, auth method, and organization memberships
-
-#### API Key Management
-- `POST /dev/api-keys` - Create API key (admin or self)
-- `GET /dev/api-keys?userId=...` - List API keys (admin or owner)
-- `DELETE /dev/api-keys/:keyId` - Revoke API key (admin or owner)
-
-#### JWT & Bearer Tokens
-- `POST /dev/jwt/issue` - Issue short-lived JWT token
-- `GET /dev/jwks.json` - JWKS for JWT verification
-
-#### Organization (Multi-tenant)
-- `POST /dev/orgs` - Create organization
-- `POST /dev/orgs/:orgId/members` - Add member by email
-- `PATCH /dev/orgs/:orgId/members/:userId` - Update member role
-- `GET /dev/orgs/:orgId/members` - List organization members
-
-#### Admin
-- `GET /dev/admin/users?limit=50` - List users (admin only)
-- `POST /dev/admin/impersonate` - Impersonate user (DEV ONLY)
+| Endpoint | Method | Purpose | Auth Required |
+|----------|--------|---------|---------------|
+| `/dev/whoami` | GET | Show identity, auth method, org memberships | Yes |
+| `/dev/api-keys` | POST | Create API key (self/admin) | Yes |
+| `/dev/api-keys` | GET | List API keys (`?userId=...`) | Yes |
+| `/dev/api-keys/:keyId` | DELETE | Revoke API key | Yes |
+| `/dev/jwt/issue` | POST | Issue short-lived JWT | Yes |
+| `/dev/jwks.json` | GET | JWKS for JWT verification | **No** (Public) |
+| `/dev/orgs` | POST | Create organization | Yes |
+| `/dev/orgs/:orgId/members` | POST | Add org member | Yes (owner/admin) |
+| `/dev/orgs/:orgId/members/:userId` | PATCH | Update member role | Yes (owner/admin) |
+| `/dev/orgs/:orgId/members` | GET | List org members | Yes (any member) |
+| `/dev/admin/users` | GET | List users (`?limit=50`) | Yes (admin) |
+| `/dev/admin/impersonate` | POST | Impersonate user | Yes (admin) |
 
 ### Usage Examples
 
-Replace `BASE` with:
-- **Replit**: `https://c25f0f2e-887e-4494-845b-803084ff23ee-00-2rxeabtep8sj0.janeway.replit.dev`
+**Base URLs:**
 - **Netlify**: `https://transity-auth.netlify.app`
+- **Replit**: `https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev`
 
-#### Authentication Examples
+#### Identity & Status
 
-**WHOAMI (cookie)**
 ```bash
-curl -i -c cookie.txt -b cookie.txt BASE/dev/whoami
-```
+# WHOAMI (cookie-based)
+curl -i -c cookie.txt -b cookie.txt https://transity-auth.netlify.app/dev/whoami
+curl -i -c cookie.txt -b cookie.txt https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/whoami
 
-**WHOAMI (API key)**
-```bash
-curl -i -H "x-api-key: REPLACE_KEY" BASE/dev/whoami
-```
+# WHOAMI (API key)
+curl -i -H "x-api-key: YOUR_API_KEY" https://transity-auth.netlify.app/dev/whoami
 
-**WHOAMI (Bearer token)**
-```bash
-curl -i -H "Authorization: Bearer REPLACE_JWT" BASE/dev/whoami
+# WHOAMI (Bearer token)
+curl -i -H "Authorization: Bearer YOUR_JWT" https://transity-auth.netlify.app/dev/whoami
 ```
 
 #### API Key Management
 
-**Create API Key**
 ```bash
-curl -i -c cookie.txt -b cookie.txt -X POST BASE/dev/api-keys \
+# Create API Key
+curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/api-keys \
   -H "Content-Type: application/json" \
   --data '{"label":"orders-svc","expiresInDays":90}'
+
+curl -i -c cookie.txt -b cookie.txt -X POST https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/api-keys \
+  -H "Content-Type: application/json" \
+  --data '{"label":"orders-svc","expiresInDays":90}'
+
+# List API Keys
+curl -i -c cookie.txt -b cookie.txt https://transity-auth.netlify.app/dev/api-keys
+curl -i -c cookie.txt -b cookie.txt https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/api-keys
+
+# Revoke API Key
+curl -i -c cookie.txt -b cookie.txt -X DELETE https://transity-auth.netlify.app/dev/api-keys/KEY_ID
+curl -i -c cookie.txt -b cookie.txt -X DELETE https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/api-keys/KEY_ID
 ```
 
-**List API Keys**
-```bash
-curl -i -c cookie.txt -b cookie.txt BASE/dev/api-keys
-```
+#### JWT & JWKS
 
-**Revoke API Key**
 ```bash
-curl -i -c cookie.txt -b cookie.txt -X DELETE BASE/dev/api-keys/REPLACE_KEY_ID
-```
-
-#### JWT & Bearer
-
-**Issue JWT Token**
-```bash
-curl -i -c cookie.txt -b cookie.txt -X POST BASE/dev/jwt/issue \
+# Issue JWT Token
+curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/jwt/issue \
   -H "Content-Type: application/json" \
   --data '{"ttlSeconds":1800,"audience":"orders-api","scopes":["orders:read"]}'
-```
 
-**Get JWKS**
-```bash
-curl -s BASE/dev/jwks.json
+curl -i -c cookie.txt -b cookie.txt -X POST https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/jwt/issue \
+  -H "Content-Type: application/json" \
+  --data '{"ttlSeconds":1800,"audience":"orders-api","scopes":["orders:read"]}'
+
+# Get JWKS (Public endpoint)
+curl -s https://transity-auth.netlify.app/dev/jwks.json
+curl -s https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/jwks.json
 ```
 
 #### Organization Management
 
-**Create Organization**
 ```bash
-curl -i -c cookie.txt -b cookie.txt -X POST BASE/dev/orgs \
+# Create Organization
+curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/orgs \
   -H "Content-Type: application/json" \
   --data '{"name":"Acme Corp"}'
-```
 
-**Add Member**
-```bash
-curl -i -c cookie.txt -b cookie.txt -X POST BASE/dev/orgs/REPLACE_ORG_ID/members \
+curl -i -c cookie.txt -b cookie.txt -X POST https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/orgs \
+  -H "Content-Type: application/json" \
+  --data '{"name":"Acme Corp"}'
+
+# Add Member
+curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/orgs/ORG_ID/members \
   -H "Content-Type: application/json" \
   --data '{"email":"member@example.com","role":"admin"}'
-```
 
-**Update Member Role**
-```bash
-curl -i -c cookie.txt -b cookie.txt -X PATCH BASE/dev/orgs/REPLACE_ORG_ID/members/REPLACE_USER_ID \
+# Update Member Role
+curl -i -c cookie.txt -b cookie.txt -X PATCH https://transity-auth.netlify.app/dev/orgs/ORG_ID/members/USER_ID \
   -H "Content-Type: application/json" \
   --data '{"role":"owner"}'
-```
 
-**List Members**
-```bash
-curl -i BASE/dev/orgs/REPLACE_ORG_ID/members
+# List Members
+curl -i https://transity-auth.netlify.app/dev/orgs/ORG_ID/members
+curl -i https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/orgs/ORG_ID/members
 ```
 
 #### Admin Functions
 
-**List Users**
 ```bash
-curl -i -c cookie.txt -b cookie.txt BASE/dev/admin/users?limit=50
-```
+# List Users (admin only)
+curl -i -c cookie.txt -b cookie.txt https://transity-auth.netlify.app/dev/admin/users?limit=50
+curl -i -c cookie.txt -b cookie.txt https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev/dev/admin/users?limit=50
 
-**Impersonate User (DEV ONLY)**
-```bash
-# Return JWT token
-curl -i -c cookie.txt -b cookie.txt -X POST BASE/dev/admin/impersonate \
+# Impersonate User - Return JWT (DEV ONLY)
+curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/admin/impersonate \
   -H "Content-Type: application/json" \
-  --data '{"userId":"REPLACE_USER_ID","as":"jwt"}'
+  --data '{"userId":"USER_ID","as":"jwt"}'
 
-# Set session cookie
-curl -i -c cookie.txt -b cookie.txt -X POST BASE/dev/admin/impersonate \
+# Impersonate User - Set Cookie (DEV ONLY)
+curl -i -c cookie.txt -b cookie.txt -X POST https://transity-auth.netlify.app/dev/admin/impersonate \
   -H "Content-Type: application/json" \
-  --data '{"userId":"REPLACE_USER_ID","as":"cookie"}'
+  --data '{"userId":"USER_ID","as":"cookie"}'
 ```
 
-### Consuming from Microservices
+### ⚠️ Production Warning
 
-**API Key Authentication**
+**NEVER set `ENABLE_DEV_ENDPOINTS=true` in production**. These endpoints expose sensitive administrative functions and should only be used in controlled development/QA environments.
+
+## CORS & Cookies
+
+### Browser Requirements
+
+- **Credentials**: Browsers must send `credentials: 'include'` for cookie-based auth
+- **Origin Whitelist**: Add your frontend domain to `TRUSTED_ORIGINS`
+
+### Cookie Configuration
+
+- **Secure**: Enabled in production (HTTPS)
+- **HttpOnly**: Yes (prevents XSS access)
+- **SameSite**: `Lax` for same-origin, `None` for cross-origin (with Secure)
+
+### Netlify Considerations
+
+- **multiValueHeaders**: Handled automatically via `session.cookieCache=false`
+- **Single Cookie**: Simplifies serverless function cookie handling
+
+### Frontend Example
+
+```javascript
+// React/Next.js fetch example
+const response = await fetch('https://transity-auth.netlify.app/api/auth/sign-in/email', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  credentials: 'include', // Required for cookies
+  body: JSON.stringify({ email, password })
+})
+```
+
+## Security Notes
+
+### Development vs Production
+
+- **DEV Endpoints**: Keep `ENABLE_DEV_ENDPOINTS=false` in production
+- **Admin Access**: Restrict admin routes to private networks or VPNs
+- **Secrets**: Use secure secret management (Netlify Environment Variables, etc.)
+
+### API Key Management
+
+- **Rotation**: Implement regular API key rotation
+- **Storage**: Store API keys securely (encrypted databases, secret vaults)
+- **Scope**: Use minimal required permissions per key
+
+### JWT Best Practices
+
+- **Short TTLs**: Use 15-30 minutes for JWT tokens
+- **Validation**: Always validate `iss` (issuer), `aud` (audience), and `exp` (expiry)
+- **JWKS**: Regularly rotate signing keys via JWKS endpoint
+
+### Audit & Monitoring
+
+- **Admin Actions**: Log all administrative operations
+- **Failed Logins**: Monitor for brute force attacks
+- **API Key Usage**: Track API key access patterns
+
+## Troubleshooting
+
+### 422 PrismaClientValidationError on Sign-up
+
+**Symptoms**: Users can't sign up, getting validation errors
+
+**Solutions**:
+1. Verify `DATABASE_URL` includes `?sslmode=require` for serverless PostgreSQL
+2. Run complete schema setup:
+   ```bash
+   npm run prisma:gen
+   npx @better-auth/cli generate prisma --yes
+   npm run prisma:migrate
+   npm run prisma:gen
+   ```
+3. Check for Express/Vite remnants in codebase (should be Fastify)
+4. Ensure Fastify handler correctly forwards request body and headers
+
+### CORS/Credentials Blocked
+
+**Symptoms**: Browser blocks requests, "credentials not allowed" errors
+
+**Solutions**:
+1. Add frontend domain to `TRUSTED_ORIGINS`: `https://yourapp.com,http://localhost:3000`
+2. Ensure frontend sends `credentials: 'include'`
+3. Verify `BETTER_AUTH_URL` matches the actual deployed domain
+
+### Replit PORT Binding Issues
+
+**Symptoms**: Service starts but isn't accessible via Replit's web view
+
+**Solutions**:
+1. Always listen on `0.0.0.0:${PORT}`, not `localhost` or `127.0.0.1`
+2. Verify `process.env.PORT` is used (Replit sets this automatically)
+3. Check that `BETTER_AUTH_URL` uses the Replit domain, not localhost
+
+### Netlify Cookie Issues
+
+**Symptoms**: Cookies not set properly in serverless environment
+
+**Solutions**:
+1. Ensure `session.cookieCache=false` in Better-Auth config (single cookie)
+2. If using multiple cookies, enable `multiValueHeaders` in `netlify.toml`
+3. Verify `BETTER_AUTH_URL` matches exact Netlify domain
+
+### Database Connection Failures
+
+**Symptoms**: "Connection refused" or SSL errors
+
+**Solutions**:
+1. Add `?sslmode=require` to PostgreSQL connection string for cloud providers
+2. Check firewall/network settings for database provider
+3. Verify connection string format: `postgresql://user:pass@host:port/db?sslmode=require`
+
+## Smoke Tests
+
+### Basic Authentication Flow
+
 ```bash
-curl -H "x-api-key: your-api-key" https://your-service/protected-endpoint
+#!/bin/bash
+BASE_NETLIFY="https://transity-auth.netlify.app"
+BASE_REPLIT="https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev"
+
+echo "=== Testing Netlify ==="
+
+# Sign up
+echo "Testing sign-up..."
+curl -i -c cookie.txt -X POST $BASE_NETLIFY/api/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  --data '{"email":"smoke-test@example.com","password":"TestPass123!"}'
+
+# Sign in
+echo "Testing sign-in..."
+curl -i -c cookie.txt -X POST $BASE_NETLIFY/api/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  --data '{"email":"smoke-test@example.com","password":"TestPass123!"}'
+
+# Get session
+echo "Testing session..."
+curl -i -b cookie.txt $BASE_NETLIFY/api/auth/session
+
+# Test /me endpoint
+echo "Testing /me..."
+curl -i -b cookie.txt $BASE_NETLIFY/me
+
+echo "=== Testing Replit ==="
+
+# Repeat for Replit
+curl -i -c cookie-replit.txt -X POST $BASE_REPLIT/api/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  --data '{"email":"smoke-test-replit@example.com","password":"TestPass123!"}'
+
+curl -i -b cookie-replit.txt $BASE_REPLIT/me
 ```
 
-**Bearer Token Authentication**
+### DEV Endpoints Smoke Test (Requires ENABLE_DEV_ENDPOINTS=true)
+
 ```bash
-curl -H "Authorization: Bearer your-jwt-token" https://your-service/protected-endpoint
+#!/bin/bash
+BASE="https://522492b2-75d0-45e8-975c-bfd2e6737120-00-10icj44qukm23.riker.replit.dev"
+
+# Prerequisites: Sign in first
+curl -i -c cookie.txt -X POST $BASE/api/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  --data '{"email":"admin@example.com","password":"AdminPass123!"}'
+
+# Test whoami
+echo "Testing /dev/whoami..."
+curl -i -b cookie.txt $BASE/dev/whoami
+
+# Create API Key
+echo "Creating API key..."
+API_KEY_RESPONSE=$(curl -s -b cookie.txt -X POST $BASE/dev/api-keys \
+  -H "Content-Type: application/json" \
+  --data '{"label":"smoke-test-key","expiresInDays":1}')
+
+API_KEY=$(echo $API_KEY_RESPONSE | jq -r '.key')
+
+# Test API Key auth
+echo "Testing API key auth..."
+curl -i -H "x-api-key: $API_KEY" $BASE/dev/whoami
+
+# Issue JWT
+echo "Issuing JWT..."
+JWT_RESPONSE=$(curl -s -b cookie.txt -X POST $BASE/dev/jwt/issue \
+  -H "Content-Type: application/json" \
+  --data '{"ttlSeconds":1800,"audience":"smoke-test"}')
+
+JWT_TOKEN=$(echo $JWT_RESPONSE | jq -r '.token')
+
+# Test JWT auth
+echo "Testing JWT auth..."
+curl -i -H "Authorization: Bearer $JWT_TOKEN" $BASE/dev/whoami
+
+# Test JWKS
+echo "Testing JWKS..."
+curl -s $BASE/dev/jwks.json | jq
+
+echo "All smoke tests completed!"
 ```
 
-**JWT Verification**
-Use the JWKS endpoint (`/dev/jwks.json`) to verify JWT tokens in your services:
-```typescript
-import { jwtVerify, createRemoteJWKSet } from 'jose'
+### Success Criteria
 
-const JWKS = createRemoteJWKSet(new URL('https://your-auth-service/dev/jwks.json'))
-const { payload } = await jwtVerify(token, JWKS)
-```
+- **2xx HTTP status codes** for all requests
+- **Set-Cookie headers** present on sign-up/sign-in
+- **JSON responses** with expected user/session data
+- **JWKS endpoint** returns valid JSON Web Key Set
+- **API Key/JWT authentication** resolves to correct user identity
 
-### Smoke Tests
+## Roadmap
 
-Run predefined smoke tests:
-```bash
-# Basic auth flow
-npm run smoke:signup
-npm run smoke:signin
-npm run smoke:session
+### Near Term
+- [ ] Admin Dashboard UI (separate React app)
+- [ ] Audit logging for admin actions
+- [ ] Organization-owned API keys
+- [ ] Rate limiting per API key
+- [ ] Email verification workflows
 
-# Dev endpoints (requires ENABLE_DEV_ENDPOINTS=true)
-npm run smoke:dev:whoami:replit
-npm run smoke:dev:apikey:create:replit
-npm run smoke:dev:jwt:issue:replit
-npm run smoke:dev:org:create:replit
-```
+### Medium Term
+- [ ] Social OAuth providers (Google, GitHub)
+- [ ] Two-factor authentication (TOTP)
+- [ ] Session management UI
+- [ ] Webhook notifications for events
+
+### Long Term
+- [ ] Multi-region deployment
+- [ ] Advanced RBAC permissions engine
+- [ ] SSO integration (SAML)
+- [ ] Compliance certifications (SOC 2)
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Changelog
+
+### v1.2.0 - 2025-09-29
+
+- **Documentation**: Complete rewrite of README with comprehensive feature guide
+- **Service-to-Service**: Documented API Key and JWT/Bearer authentication patterns
+- **DEV QA Endpoints**: Full documentation of all development/testing endpoints with examples
+- **Troubleshooting**: Added comprehensive troubleshooting section covering Prisma, CORS, TLS, and deployment issues
+- **Examples**: All examples validated against live Netlify and Replit deployments
+- **Security**: Enhanced security documentation and production deployment guidelines
+
+### v1.1.0 - 2025-09-15
+
+- **Organizations**: Multi-tenant organization support with role-based access control
+- **Admin Panel**: Administrative endpoints for user management and system operations
+- **JWT/JWKS**: JSON Web Token issuance and validation with JWKS endpoint
+- **API Keys**: Service-to-service authentication via API keys
+
+### v1.0.0 - 2025-09-01
+
+- **Initial Release**: Fastify + Better-Auth integration with Prisma PostgreSQL
+- **Core Auth**: Email/password authentication with cookie sessions
+- **Deployment**: Netlify Functions and Replit development support
+- **CORS**: Cross-origin request support with credentials
+
+---
+
+For detailed implementation guides, see:
+- [JWT/JWKS Integration Guide](docs/jwt-jwks.md)
+- [Organizations & Multi-Tenancy](docs/organizations.md)
