@@ -1,0 +1,48 @@
+The Netlify deploy errored, with the following guidance provided:
+
+**Diagnosis:**
+The build failed due to secrets being detected during the build, which caused the build script to return a non-zero exit code.
+
+**Solution:**
+1. Verify that the secrets `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `DATABASE_URL`, and `TRUSTED_ORIGINS` are not exposed in any files in your repository.
+2. If these secrets are necessary and were not meant to be detected during the build, you can use `SECRETS_SCAN_OMIT_PATHS`, `SECRETS_SCAN_OMIT_KEYS`, or `SECRETS_SCAN_ENABLED` to prevent them from being detected. This allows you to exclude specific paths or keys from the secrets scanning.
+3. Make sure to address the issues related to the detected secrets and re-run the build.
+
+For more information on secrets scanning, refer to the [Netlify Docs on secrets scanning](https://ntl.fyi/configure-secrets-scanning).
+
+The relevant error logs are:
+
+Line 92: [91m​[39m
+Line 93: [91mTo prevent exposing secrets, the build will fail until these secret values are not found in build output or repo files.[39
+Line 94: [91m​[39m
+Line 95: [91mIf these are expected, use SECRETS_SCAN_OMIT_PATHS, SECRETS_SCAN_OMIT_KEYS, or SECRETS_SCAN_ENABLED to prevent detecting.[
+Line 96: [91m​[39m
+Line 97: [91mFor more information on secrets scanning, see the Netlify Docs: https://ntl.fyi/configure-secrets-scanning[39m
+Line 98: [91m[1m​[22m[39m
+Line 99: [91m[1mSecrets scanning detected secrets in files during build.      [22m[39m
+Line 100: [91m[1m────────────────────────────────────────────────────────────────[22m[39m
+Line 101: ​
+Line 102:   [31m[1mError message[22m[39m
+Line 103:   Secrets scanning found secrets in build.
+Line 104: ​
+Line 105:   [31m[1mResolved config[22m[39m
+Line 106:   build:
+Line 107:     command: npm run build
+Line 108:     commandOrigin: ui
+Line 109:     environment:
+Line 110:       - BETTER_AUTH_SECRET
+Line 111:       - BETTER_AUTH_URL
+Line 112:       - DATABASE_URL
+Line 113:       - TRUSTED_ORIGINS
+Line 114:     publish: /opt/build/repo
+Line 115:     publishOrigin: default
+Line 116:   functionsDirectory: /opt/build/repo/netlify/functions
+Line 117:   redirects:
+Line 118: Failed during stage 'building site': Build script returned non-zero exit code: 2
+Line 119:     - from: /api/auth/*
+      status: 200
+      to: /.netlify/functions/auth
+  redirectsOrigin: config
+Line 120: Build failed due to a user error: Build script returned non-zero exit code: 2
+Line 121: Failing build: Failed to build site
+Line 122: Finished processing build request in 24.997s
