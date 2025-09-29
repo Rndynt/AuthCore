@@ -9,41 +9,47 @@ Full-stack authentication service built with Better Auth, Fastify, React, and Vi
 - **Database**: PostgreSQL with Drizzle ORM
 - **Deployment**: Configured for Replit autoscale deployment
 
-## Recent Setup (Sept 28, 2025)
+## Recent Setup (Sept 29, 2025)
 Successfully migrated GitHub import to Replit environment with the following configurations:
 
 ### Environment Configuration
 - Set up environment variables with development defaults for Replit
 - Configured PostgreSQL database integration
-- Fixed Prisma schema validation issues
+- Fixed Prisma schema validation issues for Better Auth compatibility
 - Set up Better Auth with proper CORS and trusted origins
 
+### Database Setup
+- Created PostgreSQL database using Replit's built-in service
+- Generated Prisma client and pushed schema to database
+- Fixed Account model schema conflicts between duplicate field definitions
+- Configured Better Auth to work with Prisma adapter
+
 ### Development Server
-- Fixed Fastify + Vite integration for development mode
-- Configured proper middleware routing for Vite assets
-- Set up HMR (Hot Module Replacement) support
-- Frontend serving on port 5000 with webview output
+- Auth service running on port 5000 with Fastify backend
+- Better Auth integration for email/password authentication
+- API endpoints available at `/api/auth/*` for authentication operations
+- Health check endpoint at `/healthz` and session info at `/me`
 
 ### Key Technical Fixes
-1. **Vite Middleware Integration**: Adapted Express-based Vite setup to work with Fastify
-2. **Asset Routing**: Fixed MIME type issues for JavaScript modules by properly routing Vite-specific URLs
-3. **Environment Variables**: Created flexible env configuration that works in Replit with defaults
-4. **Database Schema**: Fixed Prisma relation issues between Organization and Member models
+1. **Prisma Schema**: Cleaned up duplicate fields in Account model for Better Auth compatibility
+2. **Environment Variables**: Configured for Replit with proper domain handling and trusted origins
+3. **Database Integration**: Set up both Prisma (for Better Auth) and Drizzle (for additional operations)
+4. **Authentication Flow**: Implemented email/password signup, signin, and session management
 
 ### Project Structure
-- `server/`: Backend Fastify server and Vite integration
-- `client/`: React frontend application
-- `shared/`: Shared schema definitions and types
-- `src/`: Core authentication and environment configuration
-- `prisma/`: Database schema and configuration
+- `src/`: Core authentication service (server.ts, auth.ts, env.ts)
+- `prisma/`: Database schema and configuration for Better Auth
+- `shared/`: Shared Drizzle schema definitions (separate from Better Auth)
+- `netlify/`: Netlify Functions for production deployment (alternative)
 
 ### Development Workflow
-- Run `npm run dev` to start development server
-- Frontend accessible via Replit webview on port 5000
+- Run `npm run dev` to start auth service on port 5000
 - Backend API endpoints available at `/api/auth/*`
-- Database operations via Drizzle ORM with `npm run db:push`
+- Database operations via Prisma for Better Auth models
+- Additional database operations via Drizzle ORM with `npm run db:push`
 
 ### Deployment
-- Build: `npm run build` (builds both frontend and backend)
-- Start: `npm run start` (production server)
-- Target: Autoscale deployment for stateless web application
+- Build: `npm run build` (compiles TypeScript to dist/)
+- Start: `npm start` (runs production server from dist/)
+- Target: Autoscale deployment for stateless authentication service
+- Environment: Configured for Replit with PostgreSQL backend
