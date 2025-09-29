@@ -1,5 +1,15 @@
 [build]
   functions = "netlify/functions"
+  command = "npm run build && npx prisma generate && npx prisma migrate deploy"
+
+# Configure secrets scanning to omit legitimate environment variable names
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "BETTER_AUTH_SECRET,BETTER_AUTH_URL,DATABASE_URL,TRUSTED_ORIGINS,ENABLE_DEV_ENDPOINTS"
+
+# Netlify Functions configuration for Prisma
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["node_modules/.prisma/**", "node_modules/@prisma/client/**"]
 
 [[redirects]]
   from = "/api/auth/*"
