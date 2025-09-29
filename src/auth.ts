@@ -33,7 +33,15 @@ export const auth = betterAuth({
 
   plugins: [
     admin(),
-    organization(),
+    organization({
+      // Email sending function for invitations (dev/testing only)
+      sendInvitationEmail: async (data) => {
+        // For development - just log the invitation details
+        console.log('Invitation sent to:', data.email, 'for organization:', data.organization.name);
+        console.log('Invitation ID:', data.invitation.id, 'Role:', data.invitation.role);
+        // In production, implement actual email sending here
+      }
+    }),
     apiKey(), // S2S via x-api-key (mock session)
     jwt(),    // Token issuance + JWKS for offline verification
     bearer()  // Helper for Bearer APIs (use carefully)
