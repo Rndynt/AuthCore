@@ -32,25 +32,36 @@ model User {
   @@map("users")
 }
 
-// Account model for OAuth providers and better-auth
+// Account model for OAuth providers
 
 model Account {
   id                String   @id @default(cuid())
-  accountId         String
-  providerId        String
   userId            String   @map("user_id")
-  accessToken       String?
-  refreshToken      String?
-  idToken           String?
-  accessTokenExpiresAt  DateTime?
-  refreshTokenExpiresAt DateTime?
+  type              String
+  provider          String
+  providerAccountId String   @map("provider_account_id")
+  refresh_token     String?  @db.Text
+  access_token      String?  @db.Text
+  expires_at        Int?
+  token_type        String?
   scope             String?
-  password          String?
+  id_token          String?  @db.Text
+  session_state     String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  password              String?
+
+  @@unique([provider, providerAccountId])
   @@map("accounts")
 }
 
@@ -58,19 +69,23 @@ model Account {
 
 model Session {
   id           String   @id @default(cuid())
-  expiresAt    DateTime
-  token        String   @unique
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id")
+  expires      DateTime
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  ipAddress    String?
-  userAgent    String?
-  userId       String   @map("user_id")
-  impersonatedBy       String?
-  activeOrganizationId String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  expiresAt            DateTime
+  token                String
+  ipAddress            String?
+  userAgent            String?
+  impersonatedBy       String?
+  activeOrganizationId String?
+
   @@map("sessions")
+  @@unique([token])
 }
 
 // Verification tokens for email verification, password reset, etc.
