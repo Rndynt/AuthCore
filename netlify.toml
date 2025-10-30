@@ -1,17 +1,37 @@
 [build]
+  # Build admin UI first, then backend
+  command = "cd admin-ui && npm install && npm run build && cd .. && npm run build && npx prisma generate"
+  publish = "admin-ui/.next"
   functions = "netlify/functions"
-  command = "npm run build && npx prisma generate && npx prisma migrate deploy"
 
 # Configure secrets scanning to omit legitimate environment variable names
 [build.environment]
+  NODE_VERSION = "20"
   SECRETS_SCAN_OMIT_KEYS = "BETTER_AUTH_SECRET,BETTER_AUTH_URL,DATABASE_URL,TRUSTED_ORIGINS,ENABLE_DEV_ENDPOINTS"
+  NEXT_PUBLIC_API_URL = "/.netlify/functions"
 
 # Netlify Functions configuration for Prisma
 [functions]
   node_bundler = "esbuild"
   included_files = ["node_modules/.prisma/**", "node_modules/@prisma/client/**"]
 
+# Next.js plugin
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Admin API routes redirect to Netlify Functions
 [[redirects]]
-  from = "/api/auth/*"
+  from = "/admin/api/*"
+  to = "/.netlify/functions/auth"
+  status = 200
+
+[[redirects]]
+  from = "/admin/auth/*"
+  to = "/.netlify/functions/auth"
+  status = 200
+
+# Legacy API routes
+[[redirects]]
+  from = "/api/*"
   to = "/.netlify/functions/auth"
   status = 200
