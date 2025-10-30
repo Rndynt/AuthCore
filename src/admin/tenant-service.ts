@@ -4,7 +4,8 @@
  * Orchestrates tenant provisioning and lifecycle
  */
 
-import { Pool } from 'pg';
+import pkg from 'pg';
+const { Pool } = pkg;
 import { tenantManager } from '../multi-tenant/connection-manager.js';
 import { spawn } from 'child_process';
 
