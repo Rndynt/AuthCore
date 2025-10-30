@@ -50,6 +50,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "devDependencies": {
+    "@netlify/plugin-nextjs": "^5.7.4",
     "@types/node": "^20.19.24",
     "drizzle-kit": "^0.31.6",
     "esbuild": "^0.25.11",
