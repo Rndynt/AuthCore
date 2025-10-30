@@ -5,7 +5,9 @@
  * Only used when NESTED_TENANCY_ENABLED=true
  */
 
-import { Pool } from 'pg';
+import pkg from 'pg';
+import type { Pool as PoolType } from 'pg';
+const { Pool } = pkg;
 
 export interface SubTenant {
   id: string;
@@ -33,7 +35,7 @@ export class SubTenantManager {
     applicationSubTenants: new Map()
   };
   private initialized = false;
-  private pool: Pool;
+  private pool: PoolType;
 
   constructor() {
     this.pool = new Pool({

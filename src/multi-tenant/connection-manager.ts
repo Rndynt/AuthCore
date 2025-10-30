@@ -4,7 +4,9 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import { Pool } from 'pg';
+import pkg from 'pg';
+import type { Pool as PoolType } from 'pg';
+const { Pool } = pkg;
 import { Tenant, TenantRegistry, TenantNotFoundError, TenantSuspendedError } from './types';
 
 export class TenantConnectionManager {
@@ -15,7 +17,7 @@ export class TenantConnectionManager {
     schemaToTenantId: new Map()
   };
   private initialized = false;
-  private pool: Pool;
+  private pool: PoolType;
 
   constructor() {
     this.pool = new Pool({
