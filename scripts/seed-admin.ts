@@ -1,14 +1,17 @@
 import pkg from 'pg';
 const { Pool } = pkg;
-import { createHash, randomBytes } from 'crypto';
+import bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 
+// Connect to authcore_system schema
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  options: '-c search_path=authcore_system,public',
 });
 
-// Simple password hashing (for demo - use bcrypt in production)
-function hashPassword(password: string): string {
-  return createHash('sha256').update(password).digest('hex');
+// Use bcrypt for password hashing (compatible with Better Auth)
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, 10);
 }
 
 function generateId(): string {
@@ -19,9 +22,9 @@ async function seedAdminUser() {
   try {
     console.log('🌱 Seeding admin users to authcore_system schema...\n');
 
-    // Check if root already exists
+    // Check if root already exists (using schema-qualified search_path)
     const existing = await pool.query(`
-      SELECT id FROM authcore_system.users WHERE email = $1
+      SELECT id FROM users WHERE email = $1
     `, ['root@authcore.local']);
 
     if (existing.rows.length > 0) {
@@ -33,9 +36,9 @@ async function seedAdminUser() {
     const rootAccountId = generateId();
     const now = new Date();
 
-    // Create root user
+    // Create root user in authcore_system schema
     await pool.query(`
-      INSERT INTO authcore_system.users (
+      INSERT INTO users (
         id, email, name, "emailVerified", role, banned, "createdAt", "updatedAt"
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     `, [
@@ -53,10 +56,10 @@ async function seedAdminUser() {
 
     // Create account with password (default: AuthCore123!)
     const defaultPassword = 'AuthCore123!';
-    const passwordHash = hashPassword(defaultPassword);
+    const passwordHash = await hashPassword(defaultPassword);
 
     await pool.query(`
-      INSERT INTO authcore_system.accounts (
+      INSERT INTO accounts (
         id, "accountId", "providerId", user_id, password, "createdAt", "updatedAt"
       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
     `, [
