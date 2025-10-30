@@ -210,17 +210,3 @@ model Jwks {
 
   @@map("jwks")
 }
-
-// Multi-Tenant Registry (Shared schema in public)
-model Tenant {
-  id          String   @id @default(cuid())
-  tenantId    String   @unique // pos, ticket, crypto
-  name        String   // "POS Kasir", "Ticketing System", "Crypto Exchange"
-  schemaName  String   @unique // tenant_pos, tenant_ticket, tenant_crypto
-  status      String   @default("active") // active, suspended, deleted
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  metadata    Json?    // Additional config per tenant
-
-  @@map("tenants")
-}
