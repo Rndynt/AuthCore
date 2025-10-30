@@ -1,15 +1,25 @@
 # Auth Service - Better Auth
 
 ## Project Overview
-Full-stack authentication service built with Better Auth, Fastify, React, and Vite. The application provides a complete authentication solution with both frontend and backend components running on a single server.
+Multi-tenant authentication service built with Better Auth and Fastify. The application provides a complete authentication solution with tenant isolation using PostgreSQL schema separation.
 
 ## Architecture
 - **Backend**: Fastify server with Better Auth integration
-- **Frontend**: React application with Vite for development
-- **Database**: PostgreSQL with Drizzle ORM
+- **Database**: PostgreSQL with multi-tenant schema isolation
+- **Multi-Tenancy**: Shared database, separate schemas pattern
 - **Deployment**: Configured for Replit autoscale deployment
 
-## Recent Setup (Sept 29, 2025)
+## Recent Setup (Oct 30, 2025)
+Successfully restored and initialized the multi-tenant authentication service:
+
+### Database Initialization
+- Created PostgreSQL database using Replit's built-in service
+- Set up multi-tenant registry tables (tenants, applications, audit log)
+- Provisioned tenant-specific schemas: `tenant_pos`, `tenant_ticket`, `tenant_crypto`
+- Cloned Better Auth tables into each tenant schema for data isolation
+- Fixed Prisma schema conflict by removing duplicate Tenant model
+
+### Previous Setup (Sept 29, 2025)
 Successfully migrated GitHub import to Replit environment with the following configurations:
 
 ### Environment Configuration
@@ -26,10 +36,10 @@ Successfully migrated GitHub import to Replit environment with the following con
 
 ### Development Server
 - Auth service running on port 5000 with Fastify backend
-- Better Auth integration for email/password authentication
-- API endpoints available at `/api/auth/*` for authentication operations
-- Health check endpoint at `/healthz` and session info at `/me`
-- Documentation uses generic placeholder URLs for security
+- Multi-tenant Better Auth instances (one per tenant)
+- API endpoints available at `/api/auth/*` with tenant identification required
+- Three active tenants: `pos` (POS Kasir), `ticket` (Ticketing System), `crypto` (Crypto Exchange)
+- Tenant identification via: X-Tenant-Id header, subdomain, or /tenant/{id} path prefix
 
 ### Key Technical Fixes
 1. **Prisma Schema**: Cleaned up duplicate fields in Account model for Better Auth compatibility
@@ -45,9 +55,16 @@ Successfully migrated GitHub import to Replit environment with the following con
 
 ### Development Workflow
 - Run `npm run dev` to start auth service on port 5000
-- Backend API endpoints available at `/api/auth/*`
-- Database operations via Prisma for Better Auth models
-- Additional database operations via Drizzle ORM with `npm run db:push`
+- Backend API endpoints available at `/api/auth/*` (requires tenant identification)
+- Database operations via Prisma for Better Auth models (tenant-isolated)
+- Tenant registry managed via raw SQL in `src/multi-tenant/schema.sql`
+- Provision new tenant schemas with `npx tsx src/multi-tenant/provision-schemas.ts`
+
+### Multi-Tenant Setup
+1. Initialize database: `cat src/multi-tenant/schema.sql | psql $DATABASE_URL`
+2. Create Better Auth tables: `npx prisma db push --accept-data-loss`
+3. Provision tenant schemas: `npx tsx src/multi-tenant/provision-schemas.ts`
+4. Start service: `npm run dev`
 
 ### Deployment
 - Build: `npm run build` (compiles TypeScript to dist/)
