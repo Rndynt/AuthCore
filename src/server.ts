@@ -125,14 +125,19 @@ function registerRoutes() {
       for (const [k, v] of Object.entries(req.headers)) {
         if (v) headers.set(k, Array.isArray(v) ? v.join(",") : String(v));
       }
-      const session = await tenantAuth.api.getSession({ headers });
-      reply.send({
-        ...session,
-        tenant: {
-          id: tenantId,
-          slug: req.tenantSlug
-        }
-      });
+      
+      try {
+        const session = await tenantAuth.api.getSession({ headers } as any);
+        reply.send({
+          ...session,
+          tenant: {
+            id: tenantId,
+            slug: req.tenantSlug
+          }
+        });
+      } catch (error) {
+        reply.code(401).send({ error: 'Unauthorized', tenant: { id: tenantId, slug: req.tenantSlug } });
+      }
     });
 
     // Tenant info route
