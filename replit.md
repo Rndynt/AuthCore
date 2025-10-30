@@ -45,6 +45,28 @@ NESTED_TENANCY_ENABLED=true
 
 ## Recent Updates (Oct 30, 2025)
 
+### 🚀 Latest: Complete Database & Admin UI Setup (Today)
+
+**Database Setup Complete**:
+- ✅ PostgreSQL database provisioned via Replit
+- ✅ Prisma schema migrations executed successfully
+- ✅ Multi-tenant registry tables created (`public.tenants`, `public.applications`, `public.tenant_audit_log`)
+- ✅ Admin authentication schema created (`authcore_system`)
+- ✅ Initial tenant data seeded (POS, Ticketing, Crypto)
+- ✅ Better Auth tables created in all schemas
+
+**Admin UI Deployed**:
+- ✅ Next.js admin dashboard running on port 3000
+- ✅ Dependencies installed and configured
+- ✅ API client configured to connect to Auth Service
+- ✅ Admin login, tenant management, and audit log pages active
+- ✅ React Query integration for efficient data fetching
+- ✅ Tailwind CSS + shadcn/ui components
+
+**Both Services Running**:
+- 🟢 Auth Service: Port 5000 (Backend API)
+- 🟢 Admin UI: Port 3000 (Dashboard Interface)
+
 ### ✨ Modular Architecture Implementation
 
 Implemented configurable multi-mode AuthCore with complete flexibility:
@@ -56,6 +78,7 @@ Implemented configurable multi-mode AuthCore with complete flexibility:
 - ✅ Mode-aware server initialization
 - ✅ Conditional route registration
 - ✅ Automated setup scripts for all modes
+- ✅ Admin authentication system with isolated schema
 
 **Project Structure**:
 ```
@@ -70,10 +93,24 @@ src/
 │   ├── schema.sql                 # Tenant registry tables
 │   ├── nested-schema.sql          # Sub-tenant tables (optional)
 │   └── provision-schemas.ts       # Schema provisioning
+├── admin/
+│   ├── auth.ts            # Admin authentication (authcore_system)
+│   ├── routes.ts          # Admin API endpoints
+│   └── tenant-service.ts  # Tenant management logic
 ├── server.ts               # Mode-aware server
 └── auth.ts                 # Better Auth core
 
+admin-ui/                   # Next.js Admin Dashboard
+├── app/
+│   ├── (auth)/login       # Admin login page
+│   └── (dashboard)/       # Dashboard, tenants, audit pages
+├── components/            # UI components (shadcn/ui)
+└── lib/
+    └── api-client.ts      # API integration layer
+
 scripts/
+├── setup-admin.sh          # Admin system setup
+├── setup-admin-schema.sql  # Admin schema definition
 ├── setup-single.sh         # Single-tenant setup
 ├── setup-multi.sh          # Multi-tenant setup
 └── setup-nested.sh         # Hybrid mode setup
@@ -97,6 +134,48 @@ docs/
 - Provisioned tenant-specific schemas: `tenant_pos`, `tenant_ticket`, `tenant_crypto`
 - Cloned Better Auth tables into each tenant schema for data isolation
 - Fixed Prisma schema conflict by removing duplicate Tenant model
+
+## Current Setup Status
+
+### ✅ Ready to Use
+
+The system is fully configured and running in **Multi-Tenant Mode**:
+
+**Access Points**:
+- 🔐 **Auth API**: `https://6ecc1592-e8ff-4c2d-93f0-a18e23e81569-00-26dz3yxz4o5s8.picard.replit.dev`
+- 📊 **Admin Dashboard**: Port 3000 (via Replit console)
+
+**Active Tenants** (3):
+1. `pos` - POS Kasir System
+2. `ticket` - Ticketing Platform  
+3. `crypto` - Crypto Exchange
+
+**Admin System**:
+- Schema: `authcore_system` (isolated from tenant data)
+- First time setup: Create admin user via `/admin/auth/sign-up/email`
+
+### 🎯 Next Steps
+
+1. **Create Admin User** (if not already created):
+   ```bash
+   curl -X POST http://localhost:5000/admin/auth/sign-up/email \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"admin@authcore.local","password":"AuthCore123!","name":"Admin"}'
+   ```
+
+2. **Access Admin Dashboard**:
+   - Open Admin UI on port 3000
+   - Login with admin credentials
+   - Manage tenants, view metrics, audit logs
+
+3. **Test Authentication**:
+   ```bash
+   # Sign up a user in POS tenant
+   curl -X POST http://localhost:5000/api/auth/sign-up/email \
+     -H 'X-Tenant-Id: pos' \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"user@pos.com","password":"User123!"}'
+   ```
 
 ## Quick Start
 
