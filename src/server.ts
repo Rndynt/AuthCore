@@ -11,6 +11,7 @@ import { SubTenantManager } from "./multi-tenant/sub-tenant-manager.js";
 import { getTenantAuth } from "./multi-tenant/auth-factory.js";
 import { tenantMiddleware, type TenantRequest } from "./multi-tenant/middleware.js";
 import { adminAuthMiddleware } from "./admin-auth-middleware.js";
+import { registerAdminRoutes } from "./admin/routes.js";
 
 const app = Fastify({ logger: true });
 
@@ -276,6 +277,9 @@ const startServer = async () => {
 
     // Register routes after initialization
     registerRoutes();
+    
+    // Register admin routes (always available)
+    await registerAdminRoutes(app);
 
     // Register dev endpoints (if enabled)
     if (features.devEndpoints) {
