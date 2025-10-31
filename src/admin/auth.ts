@@ -10,11 +10,14 @@ import { PrismaClient } from '@prisma/client';
 import { admin, organization } from 'better-auth/plugins';
 import { env } from '../env.js';
 
+const adminDatabaseUrl = new URL(env.DATABASE_URL);
+adminDatabaseUrl.searchParams.set('schema', 'authcore_system');
+
 // Prisma client for authcore_system schema
 const adminPrisma = new PrismaClient({
   datasources: {
     db: {
-      url: `${process.env.DATABASE_URL}?schema=authcore_system`
+      url: adminDatabaseUrl.toString()
     }
   },
   log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error']
@@ -23,9 +26,9 @@ const adminPrisma = new PrismaClient({
 // Admin-specific Better Auth instance
 export const adminAuth = betterAuth({
   database: prismaAdapter(adminPrisma, { provider: "postgresql" }),
-  
+
   // Base URL for admin auth
-  baseURL: env.BETTER_AUTH_URL,
+  url: env.BETTER_AUTH_URL,
   
   // Session configuration
   session: { 
