@@ -14,9 +14,9 @@ const getDevUrl = () => {
 // Helper to get trusted origins for development
 const getDefaultTrustedOrigins = () => {
   if (process.env.REPLIT_DEV_DOMAIN) {
-    return `https://${process.env.REPLIT_DEV_DOMAIN},http://localhost:5000,http://0.0.0.0:5000`;
+    return `https://${process.env.REPLIT_DEV_DOMAIN},http://localhost:3000,http://localhost:5000,http://0.0.0.0:5000,https://0xauthcorex0.netlify.app`;
   }
-  return "http://localhost:5000,http://0.0.0.0:5000";
+  return "http://localhost:3000,http://localhost:5000,http://0.0.0.0:5000";
 };
 
 const envSchema = z.object({
