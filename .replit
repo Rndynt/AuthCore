@@ -15,6 +15,10 @@ localPort = 3000
 externalPort = 3000
 
 [[ports]]
+localPort = 3001
+externalPort = 3001
+
+[[ports]]
 localPort = 4000
 
 [[ports]]
@@ -22,7 +26,8 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 35369
+localPort = 42165
+externalPort = 3002
 
 [[ports]]
 localPort = 45273
@@ -40,23 +45,11 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Auth Service"
+args = "Admin UI"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Admin UI"
-
-[[workflows.workflow]]
-name = "Auth Service"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npm run dev"
-waitForPort = 5000
+args = "Auth Service"
 
 [[workflows.workflow]]
 name = "Admin UI"
@@ -65,10 +58,22 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd admin-ui && npm run dev"
-waitForPort = 3000
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow]]
+name = "Auth Service"
+author = "agent"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=3001 npm run dev"
+waitForPort = 3001
 
 [agent]
 integrations = ["javascript_database:1.0.0"]

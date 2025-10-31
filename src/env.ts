@@ -14,13 +14,13 @@ const getDevUrl = () => {
 // Helper to get trusted origins for development
 const getDefaultTrustedOrigins = () => {
   if (process.env.REPLIT_DEV_DOMAIN) {
-    return `https://${process.env.REPLIT_DEV_DOMAIN},http://localhost:3000,http://localhost:5000,http://0.0.0.0:5000,https://0xauthcorex0.netlify.app`;
+    return `https://${process.env.REPLIT_DEV_DOMAIN},http://localhost:5000,http://localhost:3001,http://0.0.0.0:3001,https://0xauthcorex0.netlify.app`;
   }
-  return "http://localhost:3000,http://localhost:5000,http://0.0.0.0:5000";
+  return "http://localhost:5000,http://localhost:3001,http://0.0.0.0:3001";
 };
 
 const envSchema = z.object({
-  PORT: z.coerce.number().default(5000),
+  PORT: z.coerce.number().default(3001),
   BETTER_AUTH_URL: z.string().url().default(getDevUrl()),
   BETTER_AUTH_SECRET: z.string().min(24).default("default-development-secret-key-change-in-production-min-24-chars"),
   TRUSTED_ORIGINS: z.string().default(getDefaultTrustedOrigins()),
