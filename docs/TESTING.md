@@ -1,402 +1,160 @@
-# AuthCore Testing Guide
+# Testing Guide
 
-## Overview
+Use this guide to confirm that AuthCore is configured correctly after installation and provisioning.
+Each section focuses on a specific surface: admin authentication, tenant authentication, and
+multi-tenant isolation.
 
-This guide covers testing AuthCore across all operational modes.
+> **Prerequisites**
+>
+> - The server is running (`npm run dev`).
+> - `DATABASE_URL` points to the database you provisioned.
+> - You have seeded the root admin via `npx tsx scripts/seed-admin.ts`.
+> - `curl` and `jq` are installed locally.
 
-## Test Scripts
+## 1. Admin Authentication
 
-Test scripts are provided for quick verification of each mode.
-
-### Test Single-Tenant Mode
+### 1.1 Sign In
 
 ```bash
-# Create test script
-cat > test-single.sh << 'EOF'
-#!/bin/bash
-set -e
-
-echo "🧪 Testing Single-Tenant AuthCore..."
-echo ""
-
-# Verify health
-echo "1️⃣ Health check..."
-HEALTH=$(curl -s http://localhost:5000/healthz)
-echo "Response: $HEALTH"
-if echo "$HEALTH" | grep -q '"mode":"single"'; then
-  echo "✅ Single-tenant mode confirmed"
-else
-  echo "❌ Wrong mode detected"
-  exit 1
-fi
-
-# Test signup
-echo ""
-echo "2️⃣ Testing user signup..."
-SIGNUP=$(curl -s -X POST http://localhost:5000/api/auth/sign-up/email \
+curl -i \
+  -c admin-cookie.txt \
+  -b admin-cookie.txt \
+  -X POST http://localhost:5000/admin/auth/sign-in/email \
   -H 'Content-Type: application/json' \
-  -d '{
-    "email": "test@example.com",
-    "password": "Test123456!",
-    "name": "Test User"
-  }')
+  --data '{"email":"root@authcore.local","password":"AuthCore123!"}'
+```
 
-if echo "$SIGNUP" | grep -q '"email":"test@example.com"'; then
-  echo "✅ Signup successful"
-  USER_ID=$(echo "$SIGNUP" | jq -r '.user.id')
-  TOKEN=$(echo "$SIGNUP" | jq -r '.token')
-  echo "   User ID: $USER_ID"
-else
-  echo "❌ Signup failed"
-  echo "$SIGNUP"
-  exit 1
-fi
+Expected outcome:
 
-# Test signin
-echo ""
-echo "3️⃣ Testing user signin..."
-SIGNIN=$(curl -s -X POST http://localhost:5000/api/auth/sign-in/email \
+- HTTP `200` response.
+- `Set-Cookie: authcore_admin_session=...` header present.
+- Response body includes the admin user object.
+
+If you receive `401` ensure the seed script ran against the same database as the server.
+
+### 1.2 Session Verification
+
+```bash
+curl -i \
+  -c admin-cookie.txt \
+  -b admin-cookie.txt \
+  http://localhost:5000/admin/auth/get-session
+```
+
+Expected outcome: JSON payload with `session` and `user` objects. This confirms cookies are signed
+with the configured `BETTER_AUTH_SECRET`.
+
+### 1.3 Admin APIs
+
+With a valid admin session you can call dashboard endpoints:
+
+```bash
+curl -s \
+  -c admin-cookie.txt \
+  -b admin-cookie.txt \
+  http://localhost:5000/admin/api/tenants | jq
+```
+
+The response lists tenants known to the registry. Use this command to verify new tenants appear after
+provisioning.
+
+## 2. Tenant Authentication (Single Mode)
+
+Run this section only if `AUTH_MODE=single`.
+
+```bash
+# Sign up
+curl -i \
+  -c tenant-cookie.txt \
+  -b tenant-cookie.txt \
+  -X POST http://localhost:5000/api/auth/sign-up/email \
   -H 'Content-Type: application/json' \
-  -d '{
-    "email": "test@example.com",
-    "password": "Test123456!"
-  }')
+  --data '{"email":"single@example.com","password":"Passw0rd!","name":"Single Tenant"}'
 
-if echo "$SIGNIN" | grep -q '"email":"test@example.com"'; then
-  echo "✅ Signin successful"
-else
-  echo "❌ Signin failed"
-  exit 1
-fi
-
-echo ""
-echo "✅ All tests passed!"
-EOF
-
-chmod +x test-single.sh
-./test-single.sh
-```
-
-### Test Multi-Tenant Mode
-
-```bash
-# Create test script
-cat > test-multi.sh << 'EOF'
-#!/bin/bash
-set -e
-
-echo "🧪 Testing Multi-Tenant AuthCore..."
-echo ""
-
-# Verify health
-echo "1️⃣ Health check..."
-HEALTH=$(curl -s http://localhost:5000/healthz)
-echo "Response: $HEALTH"
-if echo "$HEALTH" | grep -q '"mode":"multi"'; then
-  echo "✅ Multi-tenant mode confirmed"
-else
-  echo "❌ Wrong mode detected"
-  exit 1
-fi
-
-# Test POS tenant signup
-echo ""
-echo "2️⃣ Testing POS tenant signup..."
-POS_SIGNUP=$(curl -s -X POST http://localhost:5000/api/auth/sign-up/email \
+# Sign in
+curl -i \
+  -c tenant-cookie.txt \
+  -b tenant-cookie.txt \
+  -X POST http://localhost:5000/api/auth/sign-in/email \
   -H 'Content-Type: application/json' \
-  -H 'X-Tenant-Id: pos' \
-  -d '{
-    "email": "pos@example.com",
-    "password": "Test123456!",
-    "name": "POS User"
-  }')
+  --data '{"email":"single@example.com","password":"Passw0rd!"}'
 
-if echo "$POS_SIGNUP" | grep -q '"email":"pos@example.com"'; then
-  echo "✅ POS signup successful"
-else
-  echo "❌ POS signup failed"
-  echo "$POS_SIGNUP"
-  exit 1
-fi
+# Session check
+curl -s \
+  -c tenant-cookie.txt \
+  -b tenant-cookie.txt \
+  http://localhost:5000/api/auth/get-session | jq
+```
 
-# Test Crypto tenant signup
-echo ""
-echo "3️⃣ Testing Crypto tenant signup..."
-CRYPTO_SIGNUP=$(curl -s -X POST http://localhost:5000/api/auth/sign-up/email \
+A successful session response confirms the fixed schema defined by `TENANT_SCHEMA` is active.
+
+## 3. Tenant Authentication (Multi/Hybrid Mode)
+
+These tests rely on the `X-Tenant-Id` header to pick a tenant. Replace `pos` with a tenant slug
+present in `public.tenants`.
+
+```bash
+TENANT_ID=pos
+
+# Sign up a tenant user
+curl -i \
+  -c ${TENANT_ID}-cookie.txt \
+  -b ${TENANT_ID}-cookie.txt \
+  -X POST http://localhost:5000/api/auth/sign-up/email \
   -H 'Content-Type: application/json' \
-  -H 'X-Tenant-Id: crypto' \
-  -d '{
-    "email": "crypto@example.com",
-    "password": "Test123456!",
-    "name": "Crypto User"
-  }')
+  -H "X-Tenant-Id: ${TENANT_ID}" \
+  --data '{"email":"tenant-${TENANT_ID}@example.com","password":"Passw0rd!","name":"Tenant User"}'
 
-if echo "$CRYPTO_SIGNUP" | grep -q '"email":"crypto@example.com"'; then
-  echo "✅ Crypto signup successful"
-else
-  echo "❌ Crypto signup failed"
-  exit 1
-fi
-
-# Verify tenant isolation
-echo ""
-echo "4️⃣ Verifying tenant isolation..."
-POS_COUNT=$(psql $DATABASE_URL -t -c "SELECT COUNT(*) FROM tenant_pos.users;")
-CRYPTO_COUNT=$(psql $DATABASE_URL -t -c "SELECT COUNT(*) FROM tenant_crypto.users;")
-
-echo "   POS users: $POS_COUNT"
-echo "   Crypto users: $CRYPTO_COUNT"
-
-if [ "$POS_COUNT" -eq 1 ] && [ "$CRYPTO_COUNT" -eq 1 ]; then
-  echo "✅ Data isolation verified"
-else
-  echo "❌ Data isolation failed"
-  exit 1
-fi
-
-echo ""
-echo "✅ All tests passed!"
-EOF
-
-chmod +x test-multi.sh
-./test-multi.sh
-```
-
-### Test Nested Tenancy Mode
-
-```bash
-# Create test script
-cat > test-nested.sh << 'EOF'
-#!/bin/bash
-set -e
-
-echo "🧪 Testing Nested Tenancy AuthCore..."
-echo ""
-
-# Verify health
-echo "1️⃣ Health check..."
-HEALTH=$(curl -s http://localhost:5000/healthz)
-echo "Response: $HEALTH"
-if echo "$HEALTH" | grep -q '"nestedTenancy":true'; then
-  echo "✅ Nested tenancy enabled"
-else
-  echo "❌ Nested tenancy not enabled"
-  exit 1
-fi
-
-# Test sub-tenant exists
-echo ""
-echo "2️⃣ Verifying sub-tenants..."
-SUB_TENANTS=$(psql $DATABASE_URL -t -c "SELECT COUNT(*) FROM public.application_sub_tenants;")
-echo "   Sub-tenants found: $SUB_TENANTS"
-
-if [ "$SUB_TENANTS" -gt 0 ]; then
-  echo "✅ Sub-tenants table populated"
-else
-  echo "❌ No sub-tenants found"
-  exit 1
-fi
-
-# Test POS Cafe A user
-echo ""
-echo "3️⃣ Testing POS::Cafe-A user signup..."
-CAFE_A_SIGNUP=$(curl -s -X POST http://localhost:5000/api/auth/sign-up/email \
+# Sign in
+curl -i \
+  -c ${TENANT_ID}-cookie.txt \
+  -b ${TENANT_ID}-cookie.txt \
+  -X POST http://localhost:5000/api/auth/sign-in/email \
   -H 'Content-Type: application/json' \
-  -H 'X-Tenant-Id: pos::cafe-a' \
-  -d '{
-    "email": "cafea@example.com",
-    "password": "Test123456!",
-    "name": "Cafe A User"
-  }')
+  -H "X-Tenant-Id: ${TENANT_ID}" \
+  --data '{"email":"tenant-${TENANT_ID}@example.com","password":"Passw0rd!"}'
 
-if echo "$CAFE_A_SIGNUP" | grep -q '"email":"cafea@example.com"'; then
-  echo "✅ Cafe A signup successful"
-else
-  echo "❌ Cafe A signup failed"
-  echo "$CAFE_A_SIGNUP"
-  exit 1
-fi
-
-echo ""
-echo "✅ All tests passed!"
-EOF
-
-chmod +x test-nested.sh
-./test-nested.sh
+# Resolve session with tenant context
+curl -s \
+  -c ${TENANT_ID}-cookie.txt \
+  -b ${TENANT_ID}-cookie.txt \
+  -H "X-Tenant-Id: ${TENANT_ID}" \
+  http://localhost:5000/me | jq
 ```
 
-## Manual Testing
+Expected outcome:
 
-### Using curl
+- The `/me` payload contains `tenant.id` and `tenant.slug` fields.
+- Requests without the header return `401` with `{ "error": "tenant_required" }` (handled by
+  `tenantMiddleware`).
+
+## 4. Isolation Checks
+
+Confirm that users are written to the correct schemas:
 
 ```bash
-# Single-tenant mode
-curl -X POST http://localhost:5000/api/auth/sign-up/email \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "email": "user@example.com",
-    "password": "SecurePass123!",
-    "name": "John Doe"
-  }'
-
-# Multi-tenant mode
-curl -X POST http://localhost:5000/api/auth/sign-up/email \
-  -H 'Content-Type: application/json' \
-  -H 'X-Tenant-Id: pos' \
-  -d '{
-    "email": "user@example.com",
-    "password": "SecurePass123!",
-    "name": "John Doe"
-  }'
-
-# Nested tenancy
-curl -X POST http://localhost:5000/api/auth/sign-up/email \
-  -H 'Content-Type: application/json' \
-  -H 'X-Tenant-Id: pos::cafe-a' \
-  -d '{
-    "email": "staff@cafea.com",
-    "password": "SecurePass123!",
-    "name": "Cafe Staff"
-  }'
+# Replace with your tenant schemas
+psql $DATABASE_URL -c "SELECT COUNT(*) FROM authcore_system.users;"
+psql $DATABASE_URL -c "SELECT COUNT(*) FROM tenant_pos.users;"
+psql $DATABASE_URL -c "SELECT COUNT(*) FROM tenant_crypto.users;"
 ```
 
-### Database Verification
+Counts should only increment for the tenant you interacted with. If admin users appear in `public`
+re-run `npx tsx scripts/seed-admin.ts` and verify the admin Prisma client configuration.
+
+## 5. Optional: Nested Tenancy
+
+When `NESTED_TENANCY_ENABLED=true`, confirm sub-tenant data is available:
 
 ```bash
-# Check tenant registry
-psql $DATABASE_URL -c "SELECT id, name, status FROM public.tenants;"
-
-# Check sub-tenants
-psql $DATABASE_URL -c "SELECT id, application_id, name FROM public.application_sub_tenants;"
-
-# Check users in specific tenant
-psql $DATABASE_URL -c "SELECT id, email, name FROM tenant_pos.users;"
-
-# Check isolation
-psql $DATABASE_URL -c "
-  SELECT 
-    'tenant_pos' as tenant, COUNT(*) as users FROM tenant_pos.users
-  UNION ALL
-  SELECT 
-    'tenant_crypto' as tenant, COUNT(*) as users FROM tenant_crypto.users;
-"
+curl -s \
+  -c admin-cookie.txt \
+  -b admin-cookie.txt \
+  http://localhost:5000/admin/sub-tenants/<applicationId> | jq
 ```
 
-## Integration Testing
+Replace `<applicationId>` with an ID from `public.applications`. The response lists sub-tenants cached
+by `SubTenantManager`.
 
-### Postman Collection
-
-Import the provided Postman collection:
-
-```json
-{
-  "info": {
-    "name": "AuthCore API Tests",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-  },
-  "item": [
-    {
-      "name": "Health Check",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{baseUrl}}/healthz"
-      }
-    },
-    {
-      "name": "Sign Up (Single/Multi)",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          },
-          {
-            "key": "X-Tenant-Id",
-            "value": "{{tenantId}}",
-            "description": "Required for multi-tenant mode"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"email\": \"{{$randomEmail}}\",\n  \"password\": \"Test123456!\",\n  \"name\": \"{{$randomFullName}}\"\n}"
-        },
-        "url": "{{baseUrl}}/api/auth/sign-up/email"
-      }
-    }
-  ],
-  "variable": [
-    {
-      "key": "baseUrl",
-      "value": "http://localhost:5000"
-    },
-    {
-      "key": "tenantId",
-      "value": "pos"
-    }
-  ]
-}
-```
-
-## Performance Testing
-
-### Load Test with Apache Bench
-
-```bash
-# Single-tenant load test
-ab -n 1000 -c 10 \
-  -H "Content-Type: application/json" \
-  -p signup.json \
-  http://localhost:5000/api/auth/sign-up/email
-
-# Multi-tenant load test
-ab -n 1000 -c 10 \
-  -H "Content-Type: application/json" \
-  -H "X-Tenant-Id: pos" \
-  -p signup.json \
-  http://localhost:5000/api/auth/sign-up/email
-```
-
-### Expected Performance
-
-| Mode | RPS | Latency (p95) | Notes |
-|------|-----|---------------|-------|
-| Single | 200+ | <100ms | With proper indexing |
-| Multi | 150+ | <150ms | 3 active tenants |
-| Hybrid | 100+ | <200ms | 50+ sub-tenants |
-
-## Troubleshooting
-
-### Common Test Failures
-
-**Error: Tenant not found**
-```bash
-# Check tenant exists
-psql $DATABASE_URL -c "SELECT * FROM public.tenants WHERE id='pos';"
-
-# If missing, re-run setup
-bash scripts/setup-multi.sh
-```
-
-**Error: CORS**
-```bash
-# Add origin to TRUSTED_ORIGINS
-export TRUSTED_ORIGINS=http://localhost:3000,https://yourdomain.com
-```
-
-**Error: Database connection**
-```bash
-# Verify DATABASE_URL
-echo $DATABASE_URL
-
-# Test connection
-psql $DATABASE_URL -c "SELECT 1;"
-```
-
-## Next Steps
-
-- [Installation Guide](./INSTALLATION.md)
-- [Configuration Guide](./CONFIGURATION.md)
-- [Deployment Guide](./DEPLOYMENT_MODES.md)
-- [API Documentation](./API.md)
+Successful completion of these checks validates admin access, tenant flows, and schema isolation for
+your chosen deployment mode.
