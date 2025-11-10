@@ -89,10 +89,14 @@ export class SubTenantManager {
       this.registry.applicationSubTenants.forEach((subTenantIds, appId) => {
         console.log(`   📁 ${appId}: ${subTenantIds.length} sub-tenant(s)`);
       });
-    } catch (error) {
-      // Table might not exist if nested tenancy not set up yet
-      console.log('⚠️ Sub-tenant table not found (nested tenancy not set up)');
-      this.initialized = true; // Mark as initialized anyway
+    } catch (error: any) {
+      if (error?.code === '42P01') {
+        console.error('❌ Sub-tenant registry table not found. Ensure nested tenancy migrations are applied.');
+      } else {
+        console.error('❌ Failed to load sub-tenant registry:', error);
+      }
+      this.initialized = false;
+      throw error;
     }
   }
 
