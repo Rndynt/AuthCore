@@ -5,10 +5,9 @@ import { promisify } from 'util';
 
 const scrypt = promisify(scryptCallback);
 
-// Connect to authcore_system schema
+// Connect to database (Neon doesn't support search_path in pool options)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  options: '-c search_path=authcore_system,public',
 });
 
 // Better Auth hashes passwords using scrypt with these parameters
@@ -39,7 +38,10 @@ async function seedAdminUser() {
   try {
     console.log('🌱 Seeding admin users to authcore_system schema...\n');
 
-    // Check if root already exists (using schema-qualified search_path)
+    // Set search path for this session
+    await pool.query(`SET search_path TO authcore_system, public`);
+
+    // Check if root already exists
     const existing = await pool.query(`
       SELECT id FROM users WHERE email = $1
     `, ['root@authcore.local']);
