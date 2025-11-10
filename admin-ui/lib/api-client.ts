@@ -1,6 +1,11 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL
+const rawBase = process.env.NEXT_PUBLIC_API_URL
   ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')
   : '';
+
+const API_BASE =
+  rawBase && rawBase.includes('/.netlify/functions') && !rawBase.endsWith('/auth')
+    ? `${rawBase}/auth`
+    : rawBase;
 
 export const apiClient = {
   async request(endpoint: string, options?: RequestInit) {
