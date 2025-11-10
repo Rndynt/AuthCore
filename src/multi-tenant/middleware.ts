@@ -62,14 +62,26 @@ function extractTenantId(request: FastifyRequest): string | null {
 function extractSubdomain(hostname: string): string | null {
   const parts = hostname.split('.');
 
-  if (parts.length >= 3) {
-    const subdomain = parts[0];
-    if (!['www', 'api', 'admin'].includes(subdomain)) {
-      return subdomain;
-    }
+  if (parts.length < 3) {
+    return null;
   }
 
-  return null;
+  const subdomain = parts[0].toLowerCase();
+
+  if (['www', 'api', 'admin'].includes(subdomain)) {
+    return null;
+  }
+
+  if (!TENANT_IDENTIFIER_PATTERN.test(subdomain)) {
+    return null;
+  }
+
+  const tenant = tenantManager.resolveTenant(subdomain);
+  if (!tenant) {
+    return null;
+  }
+
+  return tenant.id.toLowerCase() === subdomain ? tenant.id : tenant.slug;
 }
 
 function normalizeTenantIdentifier(value: unknown): string | null {
