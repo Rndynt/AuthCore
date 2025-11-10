@@ -17,9 +17,28 @@ export interface TenantRequest extends FastifyRequest {
  * Extract tenant identifier from request
  * Priority: X-Tenant-Id header > subdomain > path
  */
+function getHeaderValue(request: FastifyRequest, headerName: string): string | null {
+  const headers = request.headers as Record<string, string | string[] | undefined>;
+  const value = headers[headerName.toLowerCase()];
+
+  if (!value) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  return null;
+}
+
 function extractTenantId(request: FastifyRequest): string | null {
   // 1. Check X-Tenant-Id header (highest priority)
-  const headerTenantId = request.headers['x-tenant-id'] as string;
+  const headerTenantId = getHeaderValue(request, 'x-tenant-id');
   if (headerTenantId) {
     return headerTenantId;
   }
@@ -53,7 +72,11 @@ function extractSubdomain(hostname: string): string | null {
   return null;
 }
 
-function normalizeTenantIdentifier(value: string): string | null {
+function normalizeTenantIdentifier(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) {
     return null;
