@@ -125,12 +125,17 @@ export class TenantService {
     // 2. Provision schema synchronously to ensure readiness
     await this.provisionTenantSchema(tenant);
 
-    return {
+    const tenantRecord: Tenant = {
       ...tenant,
       slug: tenantSlug,
       id: tenantId,
-      schema_name: schemaName
+      schema_name: schemaName,
+      metadata: tenant.metadata || {}
     };
+
+    await tenantManager.registerTenant(tenantRecord);
+
+    return tenantRecord;
   }
 
   /**
@@ -159,10 +164,7 @@ export class TenantService {
       }
       
       console.log(`[TenantService] Tables cloned for: ${tenant.schema_name}`);
-      
-      // Reload tenant registry
-      await tenantManager.reload();
-      
+
       console.log(`[TenantService] ✅ Tenant ${tenant.id} provisioned successfully`);
       
     } catch (error) {
@@ -183,14 +185,23 @@ export class TenantService {
    * Suspend tenant
    */
   async suspendTenant(tenantId: string): Promise<void> {
-    await publicPool.query(`
-      UPDATE public.tenants 
+    const result = await publicPool.query<Tenant>(`
+      UPDATE public.tenants
       SET status = 'suspended', updated_at = NOW()
       WHERE id = $1
+      RETURNING *
     `, [tenantId]);
-    
-    await tenantManager.reload();
-    
+
+    const tenant = result.rows[0];
+    if (!tenant) {
+      throw new TenantValidationError(`Tenant not found: ${tenantId}`);
+    }
+
+    await tenantManager.registerTenant({
+      ...tenant,
+      metadata: tenant.metadata || {}
+    });
+
     console.log(`[TenantService] Tenant ${tenantId} suspended`);
   }
 
@@ -198,14 +209,23 @@ export class TenantService {
    * Activate tenant
    */
   async activateTenant(tenantId: string): Promise<void> {
-    await publicPool.query(`
-      UPDATE public.tenants 
+    const result = await publicPool.query<Tenant>(`
+      UPDATE public.tenants
       SET status = 'active', updated_at = NOW()
       WHERE id = $1
+      RETURNING *
     `, [tenantId]);
-    
-    await tenantManager.reload();
-    
+
+    const tenant = result.rows[0];
+    if (!tenant) {
+      throw new TenantValidationError(`Tenant not found: ${tenantId}`);
+    }
+
+    await tenantManager.registerTenant({
+      ...tenant,
+      metadata: tenant.metadata || {}
+    });
+
     console.log(`[TenantService] Tenant ${tenantId} activated`);
   }
 
@@ -213,14 +233,23 @@ export class TenantService {
    * Delete tenant (soft delete)
    */
   async deleteTenant(tenantId: string): Promise<void> {
-    await publicPool.query(`
-      UPDATE public.tenants 
+    const result = await publicPool.query<Tenant>(`
+      UPDATE public.tenants
       SET status = 'deleted', updated_at = NOW()
       WHERE id = $1
+      RETURNING *
     `, [tenantId]);
-    
-    await tenantManager.reload();
-    
+
+    const tenant = result.rows[0];
+    if (!tenant) {
+      throw new TenantValidationError(`Tenant not found: ${tenantId}`);
+    }
+
+    await tenantManager.registerTenant({
+      ...tenant,
+      metadata: tenant.metadata || {}
+    });
+
     console.log(`[TenantService] Tenant ${tenantId} deleted (soft)`);
   }
 

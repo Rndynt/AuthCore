@@ -9,8 +9,15 @@ import type { Pool as PoolType } from 'pg';
 const { Pool } = pkg;
 import { Tenant, TenantRegistry, TenantNotFoundError, TenantSuspendedError } from './types';
 
+interface ConnectionMetadata {
+  createdAt: Date;
+  lastUsedAt: Date;
+  totalRequests: number;
+}
+
 export class TenantConnectionManager {
   private connections = new Map<string, PrismaClient>();
+  private connectionMetadata = new Map<string, ConnectionMetadata>();
   private registry: TenantRegistry = {
     tenants: new Map(),
     slugToTenantId: new Map(),
@@ -52,15 +59,8 @@ export class TenantConnectionManager {
           ...row,
           metadata: row.metadata || {}
         };
-        
-        const normalizedId = tenant.id.toLowerCase();
-        const normalizedSlug = tenant.slug.toLowerCase();
-        const normalizedSchema = tenant.schema_name.toLowerCase();
 
-        this.registry.tenants.set(tenant.id, tenant);
-        this.registry.idLookup.set(normalizedId, tenant.id);
-        this.registry.slugToTenantId.set(normalizedSlug, tenant.id);
-        this.registry.schemaToTenantId.set(normalizedSchema, tenant.id);
+        this.upsertTenantInRegistry(tenant);
       }
 
       this.initialized = true;
@@ -98,26 +98,33 @@ export class TenantConnectionManager {
     // Return cached connection if exists
     const canonicalId = tenant.id;
 
-    if (this.connections.has(canonicalId)) {
-      return this.connections.get(canonicalId)!;
+    let client = this.connections.get(canonicalId);
+    if (!client) {
+      // Create new connection with tenant-specific schema
+      const schemaUrl = this.buildSchemaUrl(tenant.schema_name);
+
+      client = new PrismaClient({
+        datasources: {
+          db: {
+            url: schemaUrl
+          }
+        },
+        log: process.env.NODE_ENV === 'development'
+          ? ['error', 'warn']
+          : ['error']
+      });
+
+      this.connections.set(canonicalId, client);
+      this.connectionMetadata.set(canonicalId, {
+        createdAt: new Date(),
+        lastUsedAt: new Date(),
+        totalRequests: 0
+      });
+
+      console.log(`✅ Created Prisma client for tenant: ${canonicalId} (${tenant.schema_name})`);
     }
 
-    // Create new connection with tenant-specific schema
-    const schemaUrl = this.buildSchemaUrl(tenant.schema_name);
-    
-    const client = new PrismaClient({
-      datasources: {
-        db: {
-          url: schemaUrl
-        }
-      },
-      log: process.env.NODE_ENV === 'development' 
-        ? ['error', 'warn'] 
-        : ['error']
-    });
-
-    this.connections.set(canonicalId, client);
-    console.log(`✅ Created Prisma client for tenant: ${canonicalId} (${tenant.schema_name})`);
+    this.touchConnectionMetadata(canonicalId);
 
     return client;
   }
@@ -193,6 +200,7 @@ export class TenantConnectionManager {
       if (client) {
         await client.$disconnect();
         this.connections.delete(key);
+        this.connectionMetadata.delete(key);
         console.log(`🔌 Disconnected tenant: ${key}`);
       }
     } else {
@@ -206,6 +214,7 @@ export class TenantConnectionManager {
         )
       );
       this.connections.clear();
+      this.connectionMetadata.clear();
       console.log('✅ All tenant connections disconnected');
     }
   }
@@ -215,16 +224,17 @@ export class TenantConnectionManager {
    */
   async reload(): Promise<void> {
     console.log('🔄 Reloading tenant registry...');
-    
+
     // Clear existing registry
     this.registry.tenants.clear();
     this.registry.slugToTenantId.clear();
     this.registry.schemaToTenantId.clear();
     this.registry.idLookup.clear();
-    
+    this.connectionMetadata.clear();
+
     // Disconnect all existing connections
     await this.disconnect();
-    
+
     // Reinitialize
     this.initialized = false;
     await this.initialize();
@@ -254,6 +264,7 @@ export class TenantConnectionManager {
   getStats() {
     const tenants = Array.from(this.registry.tenants.values());
     const activeTenants = tenants.filter(t => t.status === 'active');
+    const now = Date.now();
 
     return {
       totalTenants: tenants.length,
@@ -266,12 +277,83 @@ export class TenantConnectionManager {
         status: t.status,
         hasConnection: this.connections.has(t.id)
       })),
+      connectionDetails: Array.from(this.connectionMetadata.entries()).map(([tenantId, meta]) => ({
+        tenantId,
+        createdAt: meta.createdAt.toISOString(),
+        lastUsedAt: meta.lastUsedAt.toISOString(),
+        totalRequests: meta.totalRequests,
+        idleMilliseconds: now - meta.lastUsedAt.getTime()
+      })),
       poolStats: {
         totalCount: this.pool.totalCount,
         idleCount: this.pool.idleCount,
         waitingCount: this.pool.waitingCount
       }
     };
+  }
+
+  /**
+   * Register or update a tenant in the in-memory registry without reloading everything
+   */
+  async registerTenant(tenant: Tenant): Promise<void> {
+    if (!this.initialized) {
+      throw new Error('Tenant manager not initialized. Call initialize() first.');
+    }
+
+    this.upsertTenantInRegistry(tenant);
+
+    if (tenant.status !== 'active') {
+      await this.disconnect(tenant.id);
+    }
+  }
+
+  /**
+   * Remove tenant from registry (used when tenant deleted)
+   */
+  async removeTenant(tenantId: string): Promise<void> {
+    const tenant = this.registry.tenants.get(tenantId);
+    if (!tenant) {
+      return;
+    }
+
+    this.registry.tenants.delete(tenantId);
+    this.registry.idLookup.delete(tenant.id.toLowerCase());
+    this.registry.slugToTenantId.delete(tenant.slug.toLowerCase());
+    this.registry.schemaToTenantId.delete(tenant.schema_name.toLowerCase());
+    await this.disconnect(tenantId);
+  }
+
+  private touchConnectionMetadata(tenantId: string): void {
+    const meta = this.connectionMetadata.get(tenantId);
+    if (!meta) {
+      this.connectionMetadata.set(tenantId, {
+        createdAt: new Date(),
+        lastUsedAt: new Date(),
+        totalRequests: 1
+      });
+      return;
+    }
+
+    meta.lastUsedAt = new Date();
+    meta.totalRequests += 1;
+  }
+
+  private upsertTenantInRegistry(tenant: Tenant): void {
+    const existing = this.registry.tenants.get(tenant.id);
+    if (existing) {
+      this.registry.slugToTenantId.delete(existing.slug.toLowerCase());
+      this.registry.schemaToTenantId.delete(existing.schema_name.toLowerCase());
+      this.registry.idLookup.delete(existing.id.toLowerCase());
+    }
+
+    const normalizedId = tenant.id.toLowerCase();
+    const normalizedSlug = tenant.slug.toLowerCase();
+    const normalizedSchema = tenant.schema_name.toLowerCase();
+
+    this.registry.tenants.set(tenant.id, tenant);
+    this.registry.idLookup.set(normalizedId, tenant.id);
+    this.registry.slugToTenantId.set(normalizedSlug, tenant.id);
+    this.registry.schemaToTenantId.set(normalizedSchema, tenant.id);
   }
 
   /**
