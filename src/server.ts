@@ -1,5 +1,8 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
+import path from "path";
+import { fileURLToPath } from "url";
 import { auth } from "./auth.js";
 import { env, trustedOrigins, devEnabled } from "./env.js";
 import { registerDevEndpoints } from "./dev.js";
@@ -13,6 +16,9 @@ import { tenantMiddleware, type TenantRequest } from "./multi-tenant/middleware.
 import { adminAuthMiddleware } from "./admin-auth-middleware.js";
 import { registerAdminRoutes } from "./admin/routes.js";
 import { getRequestOrigin } from "./utils/http.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -296,8 +302,42 @@ const startServer = async () => {
       });
     }
 
+    // Serve Admin UI static files (after all API routes for proper priority)
+    const adminUIPath = path.join(__dirname, "..", "admin-ui", "out");
+    console.log(`📁 Serving Admin UI from: ${adminUIPath}`);
+    
+    await app.register(fastifyStatic, {
+      root: adminUIPath,
+      prefix: "/",
+      setHeaders: (res) => {
+        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      },
+    });
+
+    // SPA fallback: serve index.html for non-API routes
+    app.setNotFoundHandler(async (request, reply) => {
+      const urlPath = request.url;
+      
+      // Don't intercept API routes or static assets
+      if (urlPath.startsWith("/api/") || 
+          urlPath.startsWith("/admin/") || 
+          urlPath.startsWith("/legacy/") ||
+          urlPath.startsWith("/dev/") ||
+          urlPath.startsWith("/_next/") ||
+          urlPath.includes(".")) {
+        reply.code(404).send({ error: "Not Found" });
+        return;
+      }
+      
+      // Serve index.html for all other routes (SPA routing)
+      reply.type("text/html");
+      reply.header("Cache-Control", "no-cache, no-store, must-revalidate");
+      reply.sendFile("index.html", adminUIPath);
+    });
+
     await app.listen({ host: "0.0.0.0", port: env.PORT });
     app.log.info(`Auth service running on port ${env.PORT}`);
+    console.log(`✅ Admin UI available at http://0.0.0.0:${env.PORT}`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);

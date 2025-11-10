@@ -11,11 +11,12 @@ const pool = new Pool({
 });
 
 // Better Auth hashes passwords using scrypt with these parameters
+// IMPORTANT: Must match Better Auth defaults (N:16384, r:8, p:1)
 const SCRYPT_SETTINGS = {
   N: 16384,
-  r: 16,
+  r: 8,
   p: 1,
-  maxmem: 128 * 16384 * 16 * 2
+  maxmem: 128 * 16384 * 8 * 2
 };
 
 async function hashPassword(password: string): Promise<string> {
