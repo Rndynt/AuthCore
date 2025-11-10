@@ -6,7 +6,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { adminAuth } from './auth.js';
 import { adminSessionMiddleware, AdminRequest } from './middleware.js';
-import { tenantService } from './tenant-service.js';
+import { tenantService, TenantValidationError } from './tenant-service.js';
+import { getRequestOrigin } from '../utils/http.js';
 
 /**
  * Convert Fastify headers to Web Headers
@@ -36,7 +37,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     method: ["GET", "POST", "PUT", "DELETE"],
     url: "/admin/auth/*",
     handler: async (request: FastifyRequest, reply: FastifyReply) => {
-      const url = new URL(request.url.replace('/admin/auth', '/api/auth'), `http://${request.headers.host}`);
+      const base = getRequestOrigin(request);
+      const url = new URL(request.url.replace('/admin/auth', '/api/auth'), base);
       const headers = toHeaders(request.headers);
       
       const body = request.body
@@ -152,11 +154,14 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         req.ip
       );
       
-      reply.code(201).send({ 
+      reply.code(201).send({
         tenant,
-        message: 'Tenant created successfully. Schema provisioning in progress.'
+        message: 'Tenant created and provisioned successfully.'
       });
     } catch (error) {
+      if (error instanceof TenantValidationError) {
+        return reply.code(400).send({ error: error.message });
+      }
       console.error('[Admin API] Create tenant error:', error);
       reply.code(500).send({ error: 'Failed to create tenant' });
     }
@@ -285,9 +290,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     try {
       const { limit = '50', offset = '0' } = req.query as any;
       
-      // TODO: Implement audit log retrieval
-      // For now, return empty array
-      reply.send({ logs: [], total: 0 });
+      const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+      const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
+
+      const auditLogs = await tenantService.getAuditLogs(limitNum, offsetNum);
+
+      reply.send(auditLogs);
     } catch (error) {
       console.error('[Admin API] Get audit logs error:', error);
       reply.code(500).send({ error: 'Failed to get audit logs' });

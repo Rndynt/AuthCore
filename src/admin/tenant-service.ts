@@ -7,7 +7,15 @@
 import pkg from 'pg';
 const { Pool } = pkg;
 import { tenantManager } from '../multi-tenant/connection-manager.js';
-import { spawn } from 'child_process';
+
+const TENANT_IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9_-]{0,62}$/;
+
+export class TenantValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TenantValidationError';
+  }
+}
 
 // Connection to public schema
 const publicPool = new Pool({
@@ -35,6 +43,29 @@ export interface TenantMetrics {
   userCount: number;
   sessionCount: number;
   organizationCount: number;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  admin_user_id: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  details: Record<string, any>;
+  ip_address: string | null;
+  created_at: Date;
+}
+
+function normalizeTenantIdentifier(value: string, field: 'id' | 'slug'): string {
+  const normalized = value.trim().toLowerCase();
+
+  if (!TENANT_IDENTIFIER_PATTERN.test(normalized)) {
+    throw new TenantValidationError(
+      `Invalid tenant ${field}. Use lowercase letters, numbers, dashes, or underscores (1-63 characters).`
+    );
+  }
+
+  return normalized;
 }
 
 export class TenantService {
@@ -65,25 +96,41 @@ export class TenantService {
    * Create new tenant and provision schema
    */
   async createTenant(input: CreateTenantInput): Promise<Tenant> {
-    const schemaName = `tenant_${input.id}`;
-    
+    const tenantId = normalizeTenantIdentifier(input.id, 'id');
+    const tenantSlug = normalizeTenantIdentifier(input.slug, 'slug');
+    const schemaSuffix = tenantId.replace(/-/g, '_');
+    const schemaName = `tenant_${schemaSuffix}`;
+
+    // Ensure identifiers are available
+    const existing = await publicPool.query<{ id: string }>(
+      `SELECT id FROM public.tenants WHERE id = $1 OR slug = $2 LIMIT 1`,
+      [tenantId, tenantSlug]
+    );
+
+    if ((existing.rowCount ?? 0) > 0) {
+      throw new TenantValidationError('Tenant with the provided id or slug already exists.');
+    }
+
     // 1. Insert to public.tenants
     const result = await publicPool.query<Tenant>(`
       INSERT INTO public.tenants (id, name, slug, schema_name, status, metadata)
       VALUES ($1, $2, $3, $4, 'active', '{}')
       RETURNING *
-    `, [input.id, input.name, input.slug, schemaName]);
-    
+    `, [tenantId, input.name, tenantSlug, schemaName]);
+
     const tenant = result.rows[0];
-    
+
     console.log(`[TenantService] Created tenant registry: ${tenant.id}`);
-    
-    // 2. Provision schema (async - fire and forget for now)
-    this.provisionTenantSchema(tenant).catch(err => {
-      console.error(`[TenantService] Provisioning failed for ${tenant.id}:`, err);
-    });
-    
-    return tenant;
+
+    // 2. Provision schema synchronously to ensure readiness
+    await this.provisionTenantSchema(tenant);
+
+    return {
+      ...tenant,
+      slug: tenantSlug,
+      id: tenantId,
+      schema_name: schemaName
+    };
   }
 
   /**
@@ -211,20 +258,28 @@ export class TenantService {
    * Get system-wide metrics
    */
   async getSystemMetrics() {
-    const result = await publicPool.query(`
-      SELECT 
-        COUNT(*) as total_tenants,
-        COUNT(*) FILTER (WHERE status = 'active') as active_tenants,
-        COUNT(*) FILTER (WHERE status = 'suspended') as suspended_tenants
-      FROM public.tenants
+    const result = await publicPool.query<{ id: string; status: string }>(`
+      SELECT id, status FROM public.tenants
     `);
-    
-    const stats = result.rows[0];
-    
+
+    const tenants = result.rows;
+    const totalTenants = tenants.length;
+    const activeTenants = tenants.filter(t => t.status === 'active');
+    const suspendedTenants = tenants.filter(t => t.status === 'suspended');
+
+    const aggregate = await Promise.all(
+      activeTenants.map(async tenant => this.getTenantMetrics(tenant.id))
+    );
+
+    const totalUsers = aggregate.reduce((acc, metrics) => acc + metrics.userCount, 0);
+    const activeSessions = aggregate.reduce((acc, metrics) => acc + metrics.sessionCount, 0);
+
     return {
-      totalTenants: parseInt(stats.total_tenants),
-      activeTenants: parseInt(stats.active_tenants),
-      suspendedTenants: parseInt(stats.suspended_tenants),
+      totalTenants,
+      activeTenants: activeTenants.length,
+      suspendedTenants: suspendedTenants.length,
+      totalUsers,
+      activeSessions,
       connections: tenantManager.getStats()
     };
   }
@@ -245,6 +300,53 @@ export class TenantService {
         admin_user_id, action, target_type, target_id, details, ip_address
       ) VALUES ($1, $2, $3, $4, $5, $6)
     `, [adminUserId, action, targetType, targetId, JSON.stringify(details), ipAddress || null]);
+  }
+
+  async getAuditLogs(limit: number, offset: number): Promise<{ logs: AuditLogEntry[]; total: number }> {
+    try {
+      const logsResult = await publicPool.query<AuditLogEntry>(`
+        SELECT id, admin_user_id, action, target_type, target_id, details, ip_address, created_at
+        FROM authcore_system.audit_actions
+        ORDER BY created_at DESC
+        LIMIT $1 OFFSET $2
+      `, [limit, offset]);
+
+      const countResult = await publicPool.query<{ total: string }>(`
+        SELECT COUNT(*) as total FROM authcore_system.audit_actions
+      `);
+
+      const logs = logsResult.rows.map(log => {
+        let details: Record<string, any> = {};
+
+        if (typeof log.details === 'object' && log.details !== null) {
+          details = log.details as Record<string, any>;
+        } else if (log.details) {
+          try {
+            details = JSON.parse(String(log.details));
+          } catch (parseError) {
+            console.warn('[TenantService] Failed to parse audit log details', parseError);
+            details = { raw: String(log.details) };
+          }
+        }
+
+        return {
+          ...log,
+          details,
+        };
+      });
+
+      return {
+        logs,
+        total: parseInt(countResult.rows[0]?.total ?? '0', 10)
+      };
+    } catch (error: any) {
+      if (error?.code === '42P01') {
+        console.warn('[TenantService] Audit log table not found. Returning empty result.');
+        return { logs: [], total: 0 };
+      }
+
+      throw error;
+    }
   }
 }
 

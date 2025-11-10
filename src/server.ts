@@ -12,8 +12,9 @@ import { getTenantAuth } from "./multi-tenant/auth-factory.js";
 import { tenantMiddleware, type TenantRequest } from "./multi-tenant/middleware.js";
 import { adminAuthMiddleware } from "./admin-auth-middleware.js";
 import { registerAdminRoutes } from "./admin/routes.js";
+import { getRequestOrigin } from "./utils/http.js";
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, trustProxy: true });
 
 app.register(cors, {
   origin: (origin, cb) => {
@@ -49,7 +50,7 @@ function registerRoutes() {
       method: ["GET", "POST"],
       url: "/api/auth/*",
       handler: async (request, reply) => {
-        const base = `http://${request.headers.host}`;
+        const base = getRequestOrigin(request);
         const url = new URL(request.url, base);
         const headers = new Headers();
         for (const [k, v] of Object.entries(request.headers)) {
@@ -91,7 +92,7 @@ function registerRoutes() {
         const tenantId = request.tenantId!;
         const tenantAuth = getTenantAuth(tenantId);
 
-        const base = `http://${request.headers.host}`;
+        const base = getRequestOrigin(request);
         const url = new URL(request.url, base);
         const headers = new Headers();
         for (const [k, v] of Object.entries(request.headers)) {
@@ -199,7 +200,7 @@ function registerRoutes() {
     method: ["GET", "POST"],
     url: "/legacy/auth/*",
     handler: async (request, reply) => {
-      const base = `http://${request.headers.host}`;
+      const base = getRequestOrigin(request);
       const url = new URL(request.url, base);
       const headers = new Headers();
       for (const [k, v] of Object.entries(request.headers)) {
@@ -271,7 +272,7 @@ const startServer = async () => {
 
       // Log tenant stats
       const stats = tenantManager.getStats();
-      console.log(`📊 Active tenants: ${stats.totalTenants}`);
+      console.log(`📊 Active tenants: ${stats.activeTenants}`);
       console.log(`📋 Tenants:`, stats.tenants.map(t => `${t.id} (${t.name})`).join(', '));
     }
 
