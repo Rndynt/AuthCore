@@ -55,14 +55,98 @@ If Transity will later host multiple customers, surface the tenant slug on the f
 
 ## 5. Integrate KiosKoin
 
-The `main-serverless` branch of KiosKoin is private, so automated inspection was not possible. The steps below outline how to stitch AuthCore into a serverless deployment once repository access is available.
+The `main-serverless` branch of KiosKoin combines an Express application (`server/`) with Netlify function wrappers (`netlify/functions/api.ts`). The codebase currently embeds Better Auth directly; the steps below externalise that logic so AuthCore supplies all identity features.
 
-1. **Mirror the AuthCore environment variables** (`AUTHCORE_BASE_URL`, `AUTHCORE_TENANT_ID`, `TRUSTED_ORIGINS`) inside the serverless platform (e.g., Netlify, Vercel, AWS Lambda). Align the tenant ID with the `kioskoin` registry record provisioned earlier.
-2. **Wrap serverless handlers** so incoming requests proxy authentication to AuthCore before executing business logic. On Netlify/Vercel, this usually means creating a middleware function that fetches `/me` with the original cookies/headers plus `X-Tenant-Id`.
-3. **For static frontends**, configure the build to send AuthCore requests through the serverless API layer (to avoid CORS drift) and ensure `credentials: "include"` is enabled when fetching from the browser.【F:README.md†L155-L219】
-4. **Admin and provisioning workflows** follow the same tenant service calls described earlier. Once repository access is available, replicate the Express middleware pattern (or its framework-specific equivalent) within each function entrypoint.
+### 5.1 Backend (Express + Netlify wrapper)
 
-> ⚠️ *Action item*: grant repository access or share architectural details for `KiosKoinCore` to produce a code-level integration patch.
+1. **Introduce AuthCore environment variables** in Netlify/production and `.env` files:
+   - `AUTHCORE_BASE_URL` → the public URL of the AuthCore deployment (e.g., `https://authcore.example.com`).
+   - `AUTHCORE_TENANT_ID` → `kioskoin` (or another tenant ID if you operate staging/preview stacks).
+   - `AUTHCORE_ADMIN_API_KEY` (optional) → required only for automated tenant provisioning or admin API calls.
+   - Re-export these variables from Netlify to Express by adding them to `netlify.toml` or the site configuration so `process.env` exposes them during function execution.
+2. **Replace the in-repo Better Auth instance** in `server/lib/auth.ts` with a lightweight AuthCore client. Create a helper that wraps `fetch` so other modules can request AuthCore data without duplicating boilerplate:
+   ```ts
+   const baseUrl = new URL(process.env.AUTHCORE_BASE_URL!);
+
+   async function authcore(path: string, init: RequestInit = {}) {
+     const url = new URL(path, baseUrl);
+     const res = await fetch(url, {
+       ...init,
+       headers: {
+         "X-Tenant-Id": process.env.AUTHCORE_TENANT_ID!,
+         ...init.headers,
+       },
+       credentials: "include",
+     });
+
+     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+     return res.json();
+   }
+
+   export async function requireSession(headers: IncomingHttpHeaders) {
+     return authcore("/me", { headers });
+   }
+
+   export async function createApiKey(name: string) {
+     return authcore("/api/auth/api-key/create", {
+       method: "POST",
+       headers: {
+         "Content-Type": "application/json",
+         "X-Admin-Api-Key": process.env.AUTHCORE_ADMIN_API_KEY!,
+       },
+       body: JSON.stringify({ name }),
+     });
+   }
+   ```
+   Import `IncomingHttpHeaders` from `node:http` (or `http` in CommonJS builds). This keeps the AuthCore integration contained in one module while exposing simple helper functions to the rest of the codebase.
+3. **Proxy `/api/auth/*` traffic to AuthCore**. In `server/app.ts`, remove `toNodeHandler(auth)` and wire an HTTP proxy that forwards cookies, bearer tokens, and the tenant header:
+   ```ts
+   import { createProxyMiddleware } from "http-proxy-middleware";
+
+   app.use(
+     "/api/auth",
+     createProxyMiddleware({
+       target: process.env.AUTHCORE_BASE_URL!,
+       changeOrigin: true,
+       pathRewrite: { "^/api/auth": "/api/auth" },
+       onProxyReq(proxyReq, req) {
+         proxyReq.setHeader("x-tenant-id", process.env.AUTHCORE_TENANT_ID!);
+         if (req.headers.authorization) {
+           proxyReq.setHeader("authorization", req.headers.authorization);
+         }
+       },
+     }),
+   );
+   ```
+   Reuse the same proxy in the Netlify function handler (`netlify/functions/api.ts`) because it instantiates the Express app on demand.
+4. **Validate sessions via AuthCore** in protected routes. Update the `requireAdmin` middleware in `server/routes.ts` to call `requireSession(req.headers)` (from the helper above) and perform the existing role checks on the returned user. Remove the `auth.api.getSession` usage and delete the obsolete Better Auth import.
+5. **Review other Better Auth imports** such as `insertBetterAuthUserSchema` usage. For administrative flows (e.g., seeding users, bot registration), call AuthCore’s admin API endpoints instead of writing directly to Better Auth tables. For example, replace direct `db.insert(user)` calls with `authcore.admin.createUser` so AuthCore owns credential hashing.
+
+### 5.2 Frontend (React client)
+
+1. **Point the React auth client to AuthCore** by rewriting `client/src/lib/auth-client.ts` to include the external base URL and tenant header:
+   ```ts
+   export const authClient = createAuthClient({
+     baseURL: `${import.meta.env.VITE_API_BASE_URL ?? ""}/api/auth`,
+     fetchOptions: {
+       credentials: "include",
+       headers: {
+         "X-Tenant-Id": import.meta.env.VITE_AUTHCORE_TENANT_ID,
+       },
+     },
+   });
+   ```
+   Populate `VITE_API_BASE_URL` with the Netlify function endpoint and `VITE_AUTHCORE_TENANT_ID` with `kioskoin`.
+2. **Adjust API helpers** (`client/src/lib/queryClient.ts`, any direct `fetch` calls) so every request destined for AuthCore includes `credentials: "include"` and the `X-Tenant-Id` header. When calling through the Express backend, the server can inject the header, so the frontend only needs to send cookies.
+3. **Update onboarding and admin flows** (e.g., pages under `client/src/pages/auth` or any admin dashboard components) to use AuthCore’s endpoints for sign-in/out, password resets, and session reads. The component interfaces remain compatible because AuthCore mirrors Better Auth’s REST contract.
+
+### 5.3 Serverless deployment checklist
+
+- Ensure the Netlify build image includes the new dependency (`http-proxy-middleware` or your chosen proxy utility`).
+- Add the AuthCore environment variables to both Netlify build and runtime contexts so `server/app.ts` and static builds read them consistently.
+- Redeploy after removing Better Auth migrations from `server/generate-auth-schema.ts`; the AuthCore-managed schema renders those scripts unnecessary.
+
+Following these steps migrates the existing embedded Better Auth setup to AuthCore while preserving KiosKoin’s Express routing, Telegram bot flows, and Netlify deployment model.
 
 ## 6. Operational Checklist
 
@@ -75,3 +159,4 @@ The `main-serverless` branch of KiosKoin is private, so automated inspection was
 ### Change log
 
 - 2025-11-10 — Initial integration runbook drafted for Transity and KiosKoin.
+- 2025-11-11 — Expanded KiosKoin guidance with repository-specific migration steps.
