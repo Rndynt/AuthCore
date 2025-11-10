@@ -6,6 +6,8 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { tenantManager } from './connection-manager.js';
 
+const TENANT_IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9_-]{0,62}$/;
+
 export interface TenantRequest extends FastifyRequest {
   tenantId?: string;
   tenantSlug?: string;
@@ -19,20 +21,20 @@ function extractTenantId(request: FastifyRequest): string | null {
   // 1. Check X-Tenant-Id header (highest priority)
   const headerTenantId = request.headers['x-tenant-id'] as string;
   if (headerTenantId) {
-    return headerTenantId.toLowerCase();
+    return headerTenantId;
   }
 
   // 2. Check subdomain (e.g., pos.auth.com -> pos)
   const hostname = request.hostname;
   const subdomain = extractSubdomain(hostname);
-  if (subdomain && ['pos', 'ticket', 'crypto'].includes(subdomain)) {
+  if (subdomain) {
     return subdomain;
   }
 
   // 3. Check path (e.g., /tenant/pos/api/auth/...)
   const pathMatch = request.url.match(/^\/tenant\/([^\/]+)/);
   if (pathMatch) {
-    return pathMatch[1].toLowerCase();
+    return pathMatch[1];
   }
 
   return null;
@@ -40,15 +42,28 @@ function extractTenantId(request: FastifyRequest): string | null {
 
 function extractSubdomain(hostname: string): string | null {
   const parts = hostname.split('.');
-  
+
   if (parts.length >= 3) {
     const subdomain = parts[0];
     if (!['www', 'api', 'admin'].includes(subdomain)) {
       return subdomain;
     }
   }
-  
+
   return null;
+}
+
+function normalizeTenantIdentifier(value: string): string | null {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (!TENANT_IDENTIFIER_PATTERN.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
 }
 
 /**
@@ -58,9 +73,9 @@ export async function tenantMiddleware(
   request: TenantRequest,
   reply: FastifyReply
 ) {
-  const tenantId = extractTenantId(request);
+  const tenantIdentifier = extractTenantId(request);
 
-  if (!tenantId) {
+  if (!tenantIdentifier) {
     return reply.code(400).send({
       error: 'TENANT_REQUIRED',
       message: 'Tenant identifier required. Provide via X-Tenant-Id header, subdomain, or /tenant/{id} path',
@@ -72,30 +87,39 @@ export async function tenantMiddleware(
     });
   }
 
+  const normalizedIdentifier = normalizeTenantIdentifier(tenantIdentifier);
+  if (!normalizedIdentifier) {
+    return reply.code(400).send({
+      error: 'TENANT_INVALID',
+      message: `Tenant identifier '${tenantIdentifier}' is not valid. Use lowercase letters, numbers, dashes, or underscores.`,
+      tenant: tenantIdentifier
+    });
+  }
+
   // Check if tenant exists and is active
-  const tenant = tenantManager.getTenant(tenantId);
+  const tenant = tenantManager.resolveTenant(normalizedIdentifier);
   if (!tenant) {
     return reply.code(404).send({
       error: 'TENANT_NOT_FOUND',
-      message: `Tenant '${tenantId}' not found or inactive`,
-      tenantId
+      message: `Tenant '${tenantIdentifier}' not found or inactive`,
+      tenantId: tenantIdentifier
     });
   }
 
   if (tenant.status !== 'active') {
     return reply.code(403).send({
       error: 'TENANT_SUSPENDED',
-      message: `Tenant '${tenantId}' is ${tenant.status}`,
-      tenantId,
+      message: `Tenant '${tenant.id}' is ${tenant.status}`,
+      tenantId: tenant.id,
       status: tenant.status
     });
   }
 
   // Attach tenant context to request
-  request.tenantId = tenantId;
+  request.tenantId = tenant.id;
   request.tenantSlug = tenant.slug;
 
-  console.log(`[Tenant] Request from tenant: ${tenantId} (${tenant.name})`);
+  console.log(`[Tenant] Request from tenant: ${tenant.id} (${tenant.name})`);
 }
 
 /**
@@ -105,14 +129,19 @@ export async function optionalTenantMiddleware(
   request: TenantRequest,
   reply: FastifyReply
 ) {
-  const tenantId = extractTenantId(request);
+  const tenantIdentifier = extractTenantId(request);
 
-  if (tenantId) {
-    const tenant = tenantManager.getTenant(tenantId);
+  if (tenantIdentifier) {
+    const normalizedIdentifier = normalizeTenantIdentifier(tenantIdentifier);
+    if (!normalizedIdentifier) {
+      return;
+    }
+
+    const tenant = tenantManager.resolveTenant(normalizedIdentifier);
     if (tenant && tenant.status === 'active') {
-      request.tenantId = tenantId;
+      request.tenantId = tenant.id;
       request.tenantSlug = tenant.slug;
-      console.log(`[Tenant] Optional tenant context: ${tenantId}`);
+      console.log(`[Tenant] Optional tenant context: ${tenant.id}`);
     }
   }
 }

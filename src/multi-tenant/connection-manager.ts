@@ -14,7 +14,8 @@ export class TenantConnectionManager {
   private registry: TenantRegistry = {
     tenants: new Map(),
     slugToTenantId: new Map(),
-    schemaToTenantId: new Map()
+    schemaToTenantId: new Map(),
+    idLookup: new Map()
   };
   private initialized = false;
   private pool: PoolType;
@@ -43,7 +44,6 @@ export class TenantConnectionManager {
       const result = await this.pool.query<Tenant>(`
         SELECT id, name, slug, schema_name, status, metadata, created_at, updated_at
         FROM public.tenants
-        WHERE status = 'active'
         ORDER BY created_at ASC
       `);
 
@@ -53,17 +53,22 @@ export class TenantConnectionManager {
           metadata: row.metadata || {}
         };
         
+        const normalizedId = tenant.id.toLowerCase();
+        const normalizedSlug = tenant.slug.toLowerCase();
+        const normalizedSchema = tenant.schema_name.toLowerCase();
+
         this.registry.tenants.set(tenant.id, tenant);
-        this.registry.slugToTenantId.set(tenant.slug, tenant.id);
-        this.registry.schemaToTenantId.set(tenant.schema_name, tenant.id);
+        this.registry.idLookup.set(normalizedId, tenant.id);
+        this.registry.slugToTenantId.set(normalizedSlug, tenant.id);
+        this.registry.schemaToTenantId.set(normalizedSchema, tenant.id);
       }
 
       this.initialized = true;
-      console.log(`✅ Loaded ${this.registry.tenants.size} active tenants`);
-      
+      console.log(`✅ Loaded ${this.registry.tenants.size} tenants into registry`);
+
       // Log loaded tenants
       for (const [id, tenant] of this.registry.tenants) {
-        console.log(`  📁 ${id}: ${tenant.name} (${tenant.schema_name})`);
+        console.log(`  📁 ${id}: ${tenant.name} (${tenant.schema_name}) [${tenant.status}]`);
       }
     } catch (error) {
       console.error('❌ Failed to initialize tenant registry:', error);
@@ -80,7 +85,7 @@ export class TenantConnectionManager {
     }
 
     // Check if tenant exists
-    const tenant = this.registry.tenants.get(tenantId);
+    const tenant = this.resolveTenant(tenantId);
     if (!tenant) {
       throw new TenantNotFoundError(tenantId);
     }
@@ -91,8 +96,10 @@ export class TenantConnectionManager {
     }
 
     // Return cached connection if exists
-    if (this.connections.has(tenantId)) {
-      return this.connections.get(tenantId)!;
+    const canonicalId = tenant.id;
+
+    if (this.connections.has(canonicalId)) {
+      return this.connections.get(canonicalId)!;
     }
 
     // Create new connection with tenant-specific schema
@@ -109,8 +116,8 @@ export class TenantConnectionManager {
         : ['error']
     });
 
-    this.connections.set(tenantId, client);
-    console.log(`✅ Created Prisma client for tenant: ${tenantId} (${tenant.schema_name})`);
+    this.connections.set(canonicalId, client);
+    console.log(`✅ Created Prisma client for tenant: ${canonicalId} (${tenant.schema_name})`);
 
     return client;
   }
@@ -119,14 +126,14 @@ export class TenantConnectionManager {
    * Get tenant by ID
    */
   getTenant(tenantId: string): Tenant | undefined {
-    return this.registry.tenants.get(tenantId);
+    return this.resolveTenant(tenantId);
   }
 
   /**
    * Get tenant by slug
    */
   getTenantBySlug(slug: string): Tenant | undefined {
-    const tenantId = this.registry.slugToTenantId.get(slug);
+    const tenantId = this.registry.slugToTenantId.get(slug.toLowerCase());
     return tenantId ? this.registry.tenants.get(tenantId) : undefined;
   }
 
@@ -134,7 +141,7 @@ export class TenantConnectionManager {
    * Get tenant by schema name
    */
   getTenantBySchema(schemaName: string): Tenant | undefined {
-    const tenantId = this.registry.schemaToTenantId.get(schemaName);
+    const tenantId = this.registry.schemaToTenantId.get(schemaName.toLowerCase());
     return tenantId ? this.registry.tenants.get(tenantId) : undefined;
   }
 
@@ -142,7 +149,8 @@ export class TenantConnectionManager {
    * Check if tenant exists
    */
   hasTenant(tenantId: string): boolean {
-    return this.registry.tenants.has(tenantId);
+    const normalizedId = tenantId.toLowerCase();
+    return this.registry.idLookup.has(normalizedId);
   }
 
   /**
@@ -153,15 +161,39 @@ export class TenantConnectionManager {
   }
 
   /**
+   * Resolve tenant by ID or slug (case-insensitive)
+   */
+  resolveTenant(identifier: string): Tenant | undefined {
+    const normalized = identifier.trim().toLowerCase();
+    if (!normalized) {
+      return undefined;
+    }
+
+    const idMatch = this.registry.idLookup.get(normalized);
+    if (idMatch) {
+      return this.registry.tenants.get(idMatch);
+    }
+
+    const slugMatch = this.registry.slugToTenantId.get(normalized);
+    if (slugMatch) {
+      return this.registry.tenants.get(slugMatch);
+    }
+
+    return undefined;
+  }
+
+  /**
    * Disconnect specific tenant connection
    */
   async disconnect(tenantId?: string): Promise<void> {
     if (tenantId) {
-      const client = this.connections.get(tenantId);
+      const tenant = this.resolveTenant(tenantId);
+      const key = tenant ? tenant.id : tenantId;
+      const client = this.connections.get(key);
       if (client) {
         await client.$disconnect();
-        this.connections.delete(tenantId);
-        console.log(`🔌 Disconnected tenant: ${tenantId}`);
+        this.connections.delete(key);
+        console.log(`🔌 Disconnected tenant: ${key}`);
       }
     } else {
       // Disconnect all
@@ -188,6 +220,7 @@ export class TenantConnectionManager {
     this.registry.tenants.clear();
     this.registry.slugToTenantId.clear();
     this.registry.schemaToTenantId.clear();
+    this.registry.idLookup.clear();
     
     // Disconnect all existing connections
     await this.disconnect();
@@ -219,13 +252,18 @@ export class TenantConnectionManager {
    * Get connection pool stats
    */
   getStats() {
+    const tenants = Array.from(this.registry.tenants.values());
+    const activeTenants = tenants.filter(t => t.status === 'active');
+
     return {
-      totalTenants: this.registry.tenants.size,
+      totalTenants: tenants.length,
+      activeTenants: activeTenants.length,
       activeConnections: this.connections.size,
-      tenants: Array.from(this.registry.tenants.values()).map(t => ({
+      tenants: tenants.map(t => ({
         id: t.id,
         name: t.name,
         schema: t.schema_name,
+        status: t.status,
         hasConnection: this.connections.has(t.id)
       })),
       poolStats: {

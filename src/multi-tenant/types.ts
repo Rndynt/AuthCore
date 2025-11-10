@@ -53,6 +53,7 @@ export interface TenantRegistry {
   tenants: Map<string, Tenant>;
   slugToTenantId: Map<string, string>;
   schemaToTenantId: Map<string, string>;
+  idLookup: Map<string, string>;
 }
 
 export class TenantNotFoundError extends Error {

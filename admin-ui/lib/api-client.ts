@@ -1,8 +1,10 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL
+  ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')
+  : '';
 
 export const apiClient = {
   async request(endpoint: string, options?: RequestInit) {
-    const res = await fetch(`${API_URL}${endpoint}`, {
+    const res = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
       credentials: 'include',
       headers: {
