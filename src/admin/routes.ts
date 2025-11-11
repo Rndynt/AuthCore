@@ -433,6 +433,74 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   // ==========================
+  // Support Sessions
+  // ==========================
+
+  app.get('/admin/api/support-sessions', {
+    preHandler: adminSessionMiddleware
+  }, async (_req: AdminRequest, reply) => {
+    try {
+      const sessions = await tenantService.listActiveSupportSessions();
+      reply.send({ sessions });
+    } catch (error) {
+      console.error('[Admin API] List support sessions error:', error);
+      reply.code(500).send({ error: 'Failed to load support sessions' });
+    }
+  });
+
+  app.delete('/admin/api/support-sessions/:tenantId/:sessionId', {
+    preHandler: adminSessionMiddleware
+  }, async (req: AdminRequest, reply) => {
+    try {
+      const { tenantId, sessionId } = req.params as { tenantId: string; sessionId: string };
+      const revoked = await tenantService.revokeSupportSession(tenantId, sessionId);
+
+      if (revoked) {
+        await tenantService.logAuditAction(
+          req.adminUser!.id,
+          'revoke_support_session',
+          'tenant',
+          tenantId,
+          { sessionId },
+          req.ip
+        );
+      }
+
+      reply.send({ revoked });
+    } catch (error) {
+      console.error('[Admin API] Revoke support session error:', error);
+      reply.code(500).send({ error: 'Failed to revoke support session' });
+    }
+  });
+
+  // ==========================
+  // Connection Management
+  // ==========================
+
+  app.post('/admin/api/connections/prune', {
+    preHandler: adminSessionMiddleware
+  }, async (req: AdminRequest, reply) => {
+    try {
+      const { force = false } = (req.body as { force?: boolean }) ?? {};
+      const result = await tenantService.pruneIdleConnections(Boolean(force));
+
+      await tenantService.logAuditAction(
+        req.adminUser!.id,
+        'prune_connections',
+        'system',
+        'connection_pool',
+        { force: Boolean(force), pruned: result.pruned },
+        req.ip
+      );
+
+      reply.send(result);
+    } catch (error) {
+      console.error('[Admin API] Prune connections error:', error);
+      reply.code(500).send({ error: 'Failed to prune connections' });
+    }
+  });
+
+  // ==========================
   // Audit Log Routes
   // ==========================
 
@@ -450,7 +518,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         adminUserId,
         from,
         to,
-        search
+        search,
+        tenantStatus
       } = req.query as any;
 
       const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
@@ -463,7 +532,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         adminUserId,
         from,
         to,
-        search
+        search,
+        tenantStatus: tenantStatus || undefined
       });
 
       reply.send(auditLogs);

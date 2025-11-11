@@ -258,8 +258,17 @@ export class TenantConnectionManager {
     this.cleanupInterval.unref?.();
   }
 
-  private async pruneIdleConnections(force = false) {
+  async pruneIdleConnectionsNow(options: { force?: boolean } = {}): Promise<number> {
+    return this.pruneIdleConnections(Boolean(options.force));
+  }
+
+  async forcePruneAllConnections(): Promise<number> {
+    return this.pruneIdleConnections(true);
+  }
+
+  private async pruneIdleConnections(force = false): Promise<number> {
     const now = Date.now();
+    let pruned = 0;
     for (const [tenantId, meta] of this.connectionMetadata.entries()) {
       if (!force && now - meta.lastUsedAt.getTime() < this.idleTtlMs) {
         continue;
@@ -274,6 +283,7 @@ export class TenantConnectionManager {
       try {
         await client.$disconnect();
         console.log(`🧹 Closed idle Prisma client for tenant: ${tenantId}`);
+        pruned += 1;
       } catch (error) {
         console.error(`⚠️  Failed to close Prisma client for tenant ${tenantId}:`, error);
       }
@@ -281,6 +291,7 @@ export class TenantConnectionManager {
       this.connections.delete(tenantId);
       this.connectionMetadata.delete(tenantId);
     }
+    return pruned;
   }
 
   /**

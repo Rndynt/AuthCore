@@ -41,6 +41,10 @@ export const apiClient = {
   async getTenants() {
     return this.request('/admin/api/tenants');
   },
+
+  async getTenantMetrics(id: string) {
+    return this.request(`/admin/api/tenants/${id}/metrics`);
+  },
   
   async createTenant(data: { id: string; name: string; slug: string }) {
     return this.request('/admin/api/tenants', {
@@ -97,16 +101,40 @@ export const apiClient = {
     });
   },
 
+  async getSupportSessions() {
+    return this.request('/admin/api/support-sessions');
+  },
+
+  async revokeSupportSession(tenantId: string, sessionId: string) {
+    return this.request(`/admin/api/support-sessions/${tenantId}/${sessionId}`, {
+      method: 'DELETE',
+    });
+  },
+
   async getSecuritySettings() {
     return this.request('/admin/api/security/settings');
   },
 
   async updateSecuritySettings(
-    payload: Partial<{ trustedOrigins: string[]; enableDevEndpoints: boolean; apiKeyRotationDays: number | null }>
+    payload: Partial<{
+      trustedOrigins: string[];
+      enableDevEndpoints: boolean;
+      apiKeyRotationDays: number | null;
+      adminIpAllowlist: string[];
+      enforceAdminMfa: boolean;
+      readOnlyMode: boolean;
+    }>
   ) {
     return this.request('/admin/api/security/settings', {
       method: 'PUT',
       body: JSON.stringify(payload),
+    });
+  },
+
+  async pruneConnections(force?: boolean) {
+    return this.request('/admin/api/connections/prune', {
+      method: 'POST',
+      body: JSON.stringify({ force }),
     });
   },
 
@@ -120,6 +148,7 @@ export const apiClient = {
     from?: string;
     to?: string;
     search?: string;
+    tenantStatus?: string;
   } = {}) {
     const searchParams = new URLSearchParams();
     if (typeof params.limit === 'number') searchParams.set('limit', String(params.limit));
@@ -131,6 +160,7 @@ export const apiClient = {
     if (params.from) searchParams.set('from', params.from);
     if (params.to) searchParams.set('to', params.to);
     if (params.search) searchParams.set('search', params.search);
+    if (params.tenantStatus) searchParams.set('tenantStatus', params.tenantStatus);
     const query = searchParams.toString();
     return this.request(`/admin/api/audit-logs${query ? `?${query}` : ''}`);
   },

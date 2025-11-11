@@ -1,15 +1,20 @@
 'use client';
 
-import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Users, Building2, Activity, Clock, PlugZap, ShieldAlert } from 'lucide-react';
+import { Users, Building2, Activity, Clock, PlugZap, ShieldAlert, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { cn } from '@/lib/utils';
 
 export default function DashboardPage() {
+  const queryClient = useQueryClient();
+  const [pruneFeedback, setPruneFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const { data: overviewData, isLoading } = useQuery({
     queryKey: ['overview'],
     queryFn: () => apiClient.getOverview(),
@@ -19,6 +24,8 @@ export default function DashboardPage() {
   const metrics = overview?.metrics;
   const connections = metrics?.connections;
   const authCache = overview?.authCache;
+  const waitingCount = connections?.poolStats.waitingCount ?? 0;
+  const hasWaiting = waitingCount > 0;
 
   const statusCards = useMemo(() => ([
     {
@@ -75,6 +82,23 @@ export default function DashboardPage() {
       bgColor: 'bg-cyan-100',
     },
   ];
+
+  const pruneMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.pruneConnections(true);
+      return response as { pruned: number };
+    },
+    onMutate: () => {
+      setPruneFeedback(null);
+    },
+    onSuccess: (result) => {
+      setPruneFeedback({ type: 'success', message: `Pruned ${result?.pruned ?? 0} idle connection${(result?.pruned ?? 0) === 1 ? '' : 's'}.` });
+      queryClient.invalidateQueries({ queryKey: ['overview'] });
+    },
+    onError: () => {
+      setPruneFeedback({ type: 'error', message: 'Unable to prune idle connections. Try again shortly.' });
+    },
+  });
 
   if (isLoading) {
     return (
@@ -199,15 +223,38 @@ export default function DashboardPage() {
             <CardTitle>Connection Pool</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Active tenant connections and idle eviction timers.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                Active tenant connections, queue depth, and idle eviction timers.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => pruneMutation.mutate()}
+                disabled={pruneMutation.isPending}
+              >
+                {pruneMutation.isPending ? (
+                  <span className="flex items-center gap-2 text-xs">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Pruning...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2 text-xs">
+                    <PlugZap className="w-4 h-4" /> Force prune
+                  </span>
+                )}
+              </Button>
+            </div>
+            {pruneFeedback && (
+              <Alert variant={pruneFeedback.type === 'error' ? 'destructive' : 'default'}>
+                <AlertDescription>{pruneFeedback.message}</AlertDescription>
+              </Alert>
+            )}
+            <div className="grid gap-4 sm:grid-cols-4">
               <div className="rounded-lg border p-4">
                 <div className="text-sm text-muted-foreground">Pool Total</div>
                 <div className="text-xl font-semibold mt-1">{connections?.poolStats.totalCount ?? 0}</div>
               </div>
-              <div className="rounded-lg border p-4">
+              <div className={cn('rounded-lg border p-4', (connections?.poolStats.idleCount ?? 0) > 10 ? 'border-secondary bg-secondary/20' : undefined)}>
                 <div className="text-sm text-muted-foreground">Pool Idle</div>
                 <div className="text-xl font-semibold mt-1">{connections?.poolStats.idleCount ?? 0}</div>
               </div>
@@ -217,18 +264,43 @@ export default function DashboardPage() {
                   {connections?.idleConnectionTtlMs ? `${Math.round(connections.idleConnectionTtlMs / 60000)}m` : 'n/a'}
                 </div>
               </div>
+              <div className={cn('rounded-lg border p-4', hasWaiting ? 'border-destructive bg-destructive/10' : undefined)}>
+                <div className="text-sm text-muted-foreground">Waiting Queue</div>
+                <div className="text-xl font-semibold mt-1">{waitingCount}</div>
+              </div>
             </div>
             <Separator />
+            {hasWaiting && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  {waitingCount} connection{waitingCount === 1 ? '' : 's'} waiting to acquire a Prisma client. Consider pruning idle
+                  clients or scaling database capacity.
+                </AlertDescription>
+              </Alert>
+            )}
             <div className="space-y-2">
               <p className="text-xs font-medium text-muted-foreground">Active Connections</p>
               <div className="max-h-48 overflow-y-auto space-y-2">
                 {(connections?.connectionDetails ?? []).map((detail: any) => (
-                  <div key={detail.tenantId} className="rounded border p-3 text-sm">
+                  <div
+                    key={detail.tenantId}
+                    className={cn(
+                      'rounded border p-3 text-sm transition-colors',
+                      detail.idleMilliseconds > (connections?.idleConnectionTtlMs ?? Infinity)
+                        ? 'border-destructive bg-destructive/10'
+                        : undefined
+                    )}
+                  >
                     <div className="flex items-center justify-between">
                       <span className="font-medium">{detail.tenantId}</span>
-                      <Badge variant={detail.totalRequests > 0 ? 'secondary' : 'outline'}>
-                        {detail.totalRequests} requests
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={detail.totalRequests > 0 ? 'secondary' : 'outline'}>
+                          {detail.totalRequests} requests
+                        </Badge>
+                        <Badge variant={detail.idleMilliseconds > (connections?.idleConnectionTtlMs ?? Infinity) ? 'destructive' : 'secondary'}>
+                          idle {Math.max(1, Math.round(detail.idleMilliseconds / 1000))}s
+                        </Badge>
+                      </div>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       Idle {Math.round(detail.idleMilliseconds / 1000)}s • Last used {new Date(detail.lastUsedAt).toLocaleTimeString()}
