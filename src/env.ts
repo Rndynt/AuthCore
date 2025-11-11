@@ -59,10 +59,36 @@ if (process.env.NODE_ENV === "production" && env.BETTER_AUTH_SECRET === DEFAULT_
   );
 }
 
-export const trustedOrigins = env.TRUSTED_ORIGINS
+function normalizeOrigin(raw: string) {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  // Fix common mistakes like "http//" by ensuring the colon is present.
+  const withProtocolSeparator = trimmed.replace(/^(https?)(\/\/)/i, "$1://");
+
+  try {
+    const url = new URL(withProtocolSeparator);
+    return `${url.protocol}//${url.host}`;
+  } catch (error) {
+    console.warn(
+      `[env] Ignoring invalid TRUSTED_ORIGINS entry "${trimmed}": ${(error as Error).message}`
+    );
+    return null;
+  }
+}
+
+const parsedOrigins = env.TRUSTED_ORIGINS
   .split(",")
-  .map(s => s.trim())
-  .filter(Boolean);
+  .map(normalizeOrigin)
+  .filter((origin): origin is string => Boolean(origin));
+
+if (parsedOrigins.length === 0) {
+  console.warn(
+    "[env] TRUSTED_ORIGINS did not yield any valid origins. Falling back to runtime request origins."
+  );
+}
+
+export const trustedOrigins = Array.from(new Set(parsedOrigins));
 
 export const devEnabled = env.ENABLE_DEV_ENDPOINTS === "true";
 
