@@ -7,6 +7,8 @@ const API_BASE =
     ? `${rawBase}/auth`
     : rawBase;
 
+export const apiBaseUrl = API_BASE;
+
 export const apiClient = {
   async request(endpoint: string, options?: RequestInit) {
     const res = await fetch(`${API_BASE}${endpoint}`, {
