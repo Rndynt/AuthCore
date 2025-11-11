@@ -49,7 +49,7 @@ export default function AuditLogsPage() {
       });
       return response as { logs: AuditLog[]; total: number };
     },
-    keepPreviousData: true,
+    placeholderData: (previousData) => previousData,
   });
 
   const total = logsQuery.data?.total ?? 0;
