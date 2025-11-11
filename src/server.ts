@@ -17,11 +17,30 @@ import { tenantMiddleware, type TenantRequest } from "./multi-tenant/middleware.
 import { adminAuthMiddleware } from "./admin-auth-middleware.js";
 import { registerAdminRoutes } from "./admin/routes.js";
 import { getRequestOrigin } from "./utils/http.js";
+import requestLogger from "./utils/request-logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = Fastify({ logger: true, trustProxy: true });
+const isDev = process.env.NODE_ENV !== "production";
+
+const app = Fastify({
+  logger: isDev
+    ? {
+        transport: {
+          target: "pino-pretty",
+          options: {
+            colorize: true,
+            translateTime: "HH:MM:ss.l",
+            ignore: "pid,hostname"
+          }
+        }
+      }
+    : true,
+  trustProxy: true
+});
+
+app.register(requestLogger);
 
 app.register(cors, {
   origin: (origin, cb) => {
@@ -94,7 +113,7 @@ function registerRoutes() {
     app.route({
       method: ["GET", "POST"],
       url: "/api/auth/*",
-      preHandler: tenantMiddleware,
+      onRequest: tenantMiddleware,
       handler: async (request: TenantRequest, reply) => {
         const tenantId = request.tenantId!;
         const tenantAuth = getTenantAuth(tenantId);
@@ -125,7 +144,7 @@ function registerRoutes() {
 
     // Helper route to resolve current session with tenant support
     app.get("/me", {
-      preHandler: tenantMiddleware
+      onRequest: tenantMiddleware
     }, async (req: TenantRequest, reply) => {
       const tenantId = req.tenantId!;
       const tenantAuth = getTenantAuth(tenantId);
@@ -151,7 +170,7 @@ function registerRoutes() {
 
     // Tenant info route
     app.get("/tenant/info", {
-      preHandler: tenantMiddleware
+      onRequest: tenantMiddleware
     }, async (req: TenantRequest, reply) => {
       const tenant = tenantManager.getTenant(req.tenantId!);
       reply.send({
