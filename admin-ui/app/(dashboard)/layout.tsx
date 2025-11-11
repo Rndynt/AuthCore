@@ -58,9 +58,9 @@ export default function DashboardLayout({
   };
 
   const navItems = [
-    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/dashboard/tenants', label: 'Tenants', icon: Users },
-    { href: '/dashboard/audit', label: 'Audit Logs', icon: FileText },
+    { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+    { href: '/tenants', label: 'Tenants', icon: Users },
+    { href: '/audit', label: 'Audit Logs', icon: FileText },
   ];
 
   const SidebarContent = () => (

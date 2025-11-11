@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import path from "path";
 import { fileURLToPath } from "url";
+import { readFile } from "fs/promises";
 import { auth } from "./auth.js";
 import { env, trustedOrigins, devEnabled } from "./env.js";
 import { registerDevEndpoints } from "./dev.js";
@@ -306,16 +307,31 @@ const startServer = async () => {
     const adminUIPath = path.join(__dirname, "..", "admin-ui", "out");
     console.log(`📁 Serving Admin UI from: ${adminUIPath}`);
     
+    // Add global hook to set cache control headers for static files
+    app.addHook('onSend', async (request, reply) => {
+      // Set cache control for static files and HTML (but not API responses)
+      const isApiRoute = request.url.startsWith('/api/') || 
+                         request.url.startsWith('/admin/') || 
+                         request.url.startsWith('/legacy/') ||
+                         request.url.startsWith('/dev/');
+      
+      if (!isApiRoute && !reply.hasHeader('Cache-Control')) {
+        reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+      }
+    });
+    
     await app.register(fastifyStatic, {
       root: adminUIPath,
       prefix: "/",
-      setHeaders: (res) => {
-        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-      },
     });
 
     // SPA fallback: serve index.html for non-API routes
     app.setNotFoundHandler(async (request, reply) => {
+      // If reply was already sent, don't try to send again
+      if (reply.sent) {
+        return;
+      }
+      
       const urlPath = request.url;
       
       // Don't intercept API routes or static assets
@@ -330,9 +346,15 @@ const startServer = async () => {
       }
       
       // Serve index.html for all other routes (SPA routing)
-      reply.type("text/html");
-      reply.header("Cache-Control", "no-cache, no-store, must-revalidate");
-      reply.sendFile("index.html", adminUIPath);
+      try {
+        const indexPath = path.join(adminUIPath, "index.html");
+        const content = await readFile(indexPath, "utf-8");
+        reply.type("text/html");
+        reply.header("Cache-Control", "no-cache, no-store, must-revalidate");
+        reply.send(content);
+      } catch (err) {
+        reply.code(404).send({ error: "Not Found" });
+      }
     });
 
     await app.listen({ host: "0.0.0.0", port: env.PORT });

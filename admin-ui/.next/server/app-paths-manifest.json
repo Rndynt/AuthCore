@@ -2,6 +2,6 @@
   "/_not-found/page": "app/_not-found/page.js",
   "/(auth)/login/page": "app/(auth)/login/page.js",
   "/(dashboard)/tenants/page": "app/(dashboard)/tenants/page.js",
-  "/(dashboard)/audit/page": "app/(dashboard)/audit/page.js",
-  "/(dashboard)/page": "app/(dashboard)/page.js"
+  "/(dashboard)/page": "app/(dashboard)/page.js",
+  "/(dashboard)/audit/page": "app/(dashboard)/audit/page.js"
 }
