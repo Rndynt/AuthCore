@@ -1,7 +1,7 @@
 [build]
   # Build admin UI first, then backend
   command = "cd admin-ui && npm install && npm run build && cd .. && npm run build && npx prisma generate"
-  publish = "admin-ui/.next"
+  publish = "admin-ui/out"
   functions = "netlify/functions"
 
 # Configure secrets scanning to omit legitimate environment variable names
