@@ -1,9 +1,22 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { auth } from "./auth.js";
-import { devEnabled } from "./env.js";
+import { devEnabled, env } from "./env.js";
+import type { AuthConfig } from "./config/auth-mode.js";
+import { getTenantAuth } from "./multi-tenant/auth-factory.js";
+import { tenantManager } from "./multi-tenant/connection-manager.js";
 
 // Auth mode detection
 type AuthMode = "cookie" | "apiKey" | "bearer";
+type BetterAuthInstance = {
+  api: any;
+};
+
+interface AuthContext {
+  authInstance: BetterAuthInstance;
+  tenantId?: string;
+}
+
+type DevRequest = FastifyRequest & { devAuthContext?: AuthContext };
 
 function detectAuthMode(headers: Record<string, any>): AuthMode {
   if (headers["x-api-key"]) return "apiKey";
@@ -20,28 +33,82 @@ function toHeaders(reqHeaders: FastifyRequest["headers"]): Headers {
   return headers;
 }
 
+function extractTenantHint(request: FastifyRequest): string | null {
+  const header = request.headers["x-tenant-id"];
+  if (Array.isArray(header)) {
+    if (header.length > 0 && header[0]) {
+      return header[0] as string;
+    }
+  } else if (typeof header === "string" && header.trim()) {
+    return header.trim();
+  }
+
+  const query = (request.query as any)?.tenantId;
+  if (typeof query === "string" && query.trim()) {
+    return query.trim();
+  }
+
+  return null;
+}
+
+async function resolveAuthContext(config: AuthConfig, request: FastifyRequest): Promise<AuthContext> {
+  if (config.mode === "single") {
+    return {
+    authInstance: { api: (auth as any).api } as BetterAuthInstance,
+      tenantId: config.singleTenantId
+    };
+  }
+
+  const tenantHint = extractTenantHint(request);
+  if (!tenantHint) {
+    throw { status: 400, message: "X-Tenant-Id header is required for dev endpoints in multi-tenant mode" };
+  }
+
+  const tenant = tenantManager.resolveTenant(tenantHint);
+  if (!tenant) {
+    throw { status: 404, message: `Tenant not found: ${tenantHint}` };
+  }
+
+  if (tenant.status !== "active") {
+    throw { status: 403, message: `Tenant ${tenant.id} is not active` };
+  }
+
+  return {
+    authInstance: getTenantAuth(tenant.id) as unknown as BetterAuthInstance,
+    tenantId: tenant.id
+  };
+}
+
+function getAuthContext(config: AuthConfig, request: DevRequest): AuthContext {
+  if (request.devAuthContext) {
+    return request.devAuthContext;
+  }
+
+  throw { status: 500, message: "Auth context not initialized" };
+}
+
 // Auth helpers
-async function requireUser(headers: Headers) {
-  const session = await auth.api.getSession({ headers });
+async function requireUser(authInstance: BetterAuthInstance, headers: Headers) {
+  const session = await authInstance.api.getSession({ headers });
   if (!session?.user) {
     throw { status: 401, message: "Authentication required" };
   }
   return session;
 }
 
-async function requireAdmin(headers: Headers) {
-  const session = await requireUser(headers);
+async function requireAdmin(authInstance: BetterAuthInstance, headers: Headers) {
+  const session = await requireUser(authInstance, headers);
   if (session.user.role !== "admin") {
     throw { status: 403, message: "Admin access required" };
   }
   return session;
 }
 
-async function requireOrgRole(headers: Headers, orgId: string, roles: string[]) {
-  const session = await requireUser(headers);
-  
+async function requireOrgRole(authInstance: BetterAuthInstance, headers: Headers, orgId: string, roles: string[]) {
+  const session = await requireUser(authInstance, headers);
+
   // Get user's organization memberships
-  const organizations = await auth.api.listOrganizations({ headers });
+  const organizations = await authInstance.api.listOrganizations({ headers });
   
   const membership = organizations?.find((org: any) => 
     org.id === orgId && roles.includes(org.role)
@@ -55,7 +122,7 @@ async function requireOrgRole(headers: Headers, orgId: string, roles: string[]) 
 }
 
 // Dev endpoints registration
-export function registerDevEndpoints(app: FastifyInstance) {
+export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
   console.log("Registering dev endpoints, devEnabled:", devEnabled);
   
   if (!devEnabled) {
@@ -82,10 +149,12 @@ export function registerDevEndpoints(app: FastifyInstance) {
         if (request.url === "/dev/jwks.json") {
           return;
         }
-        
+
         // All other dev endpoints require authentication
         const headers = toHeaders(request.headers);
-        await requireUser(headers);
+        const context = await resolveAuthContext(config, request);
+        (request as DevRequest).devAuthContext = context;
+        await requireUser(context.authInstance, headers);
       } catch (error: any) {
         reply.status(error.status || 500).send({ error: error.message });
       }
@@ -95,14 +164,16 @@ export function registerDevEndpoints(app: FastifyInstance) {
     devApp.get("/dev/whoami", async (request, reply) => {
       try {
         const headers = toHeaders(request.headers);
-        const session = await requireUser(headers);
+        const context = (request as DevRequest).devAuthContext || await resolveAuthContext(config, request);
+        const session = await requireUser(context.authInstance, headers);
         const mode = detectAuthMode(request.headers);
-        
+
         // Get organization memberships
-        const organizations = await auth.api.listOrganizations({ headers }).catch(() => []);
+        const organizations = await context.authInstance.api.listOrganizations({ headers }).catch(() => []);
 
         reply.send({
           mode,
+          tenant: context.tenantId,
           user: {
             id: session.user.id,
             email: session.user.email,
@@ -119,17 +190,18 @@ export function registerDevEndpoints(app: FastifyInstance) {
     devApp.post("/dev/api-keys", async (request, reply) => {
       try {
         const headers = toHeaders(request.headers);
-        const session = await requireUser(headers);
+        const context = (request as DevRequest).devAuthContext || await resolveAuthContext(config, request);
+        const session = await requireUser(context.authInstance, headers);
         const body = request.body as any;
-        
+
         const targetUserId = body.userId || session.user.id;
-        
+
         // Check if user can create API key for target user
         if (targetUserId !== session.user.id && session.user.role !== "admin") {
           return reply.status(403).send({ error: "Can only create API keys for yourself or as admin" });
         }
-        
-        const result = await auth.api.createApiKey({
+
+        const result = await context.authInstance.api.createApiKey({
           headers,
           body: {
             userId: targetUserId,
@@ -154,17 +226,18 @@ export function registerDevEndpoints(app: FastifyInstance) {
     devApp.get("/dev/api-keys", async (request, reply) => {
       try {
         const headers = toHeaders(request.headers);
-        const session = await requireUser(headers);
+        const context = (request as DevRequest).devAuthContext || await resolveAuthContext(config, request);
+        const session = await requireUser(context.authInstance, headers);
         const query = request.query as any;
-        
+
         const targetUserId = query.userId || session.user.id;
-        
+
         // Check if user can list API keys for target user
         if (targetUserId !== session.user.id && session.user.role !== "admin") {
           return reply.status(403).send({ error: "Can only list your own API keys or as admin" });
         }
-        
-        const keys = await auth.api.listApiKeys({
+
+        const keys = await context.authInstance.api.listApiKeys({
           headers,
           query: { userId: targetUserId }
         });
@@ -179,10 +252,11 @@ export function registerDevEndpoints(app: FastifyInstance) {
     devApp.delete("/dev/api-keys/:keyId", async (request, reply) => {
       try {
         const headers = toHeaders(request.headers);
-        const session = await requireUser(headers);
+        const context = (request as DevRequest).devAuthContext || await resolveAuthContext(config, request);
+        await requireUser(context.authInstance, headers);
         const params = request.params as any;
-        
-        await auth.api.deleteApiKey({
+
+        await context.authInstance.api.deleteApiKey({
           headers,
           body: { keyId: params.keyId }
         });
@@ -197,28 +271,30 @@ export function registerDevEndpoints(app: FastifyInstance) {
     devApp.post("/dev/jwt/issue", async (request, reply) => {
       try {
         const headers = toHeaders(request.headers);
-        const session = await requireUser(headers);
+        const context = (request as DevRequest).devAuthContext || await resolveAuthContext(config, request);
+        const session = await requireUser(context.authInstance, headers);
         const body = request.body as any;
-        
+
         const targetUserId = body.userId || session.user.id;
-        
+
         // Check if user can issue JWT for target user
         if (targetUserId !== session.user.id && session.user.role !== "admin") {
           return reply.status(403).send({ error: "Can only issue JWT for yourself or as admin" });
         }
-        
+
         const ttl = body.ttlSeconds || 1800; // 30 minutes default
         const expiresAt = new Date(Date.now() + ttl * 1000);
-        
-        // For JWT, we create a session token and let JWT plugin handle it  
-        const authUrl = process.env.BETTER_AUTH_URL || 'http://localhost:5000';
+
+        // For JWT, we create a session token and let JWT plugin handle it
+        const authUrl = env.BETTER_AUTH_URL;
         const tokenResponse = await fetch(`${authUrl}/api/auth/token`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Cookie': headers.get('cookie') || '',
             'Authorization': headers.get('authorization') || '',
-            'x-api-key': headers.get('x-api-key') || ''
+            'x-api-key': headers.get('x-api-key') || '',
+            ...(config.mode === 'multi' && context.tenantId ? { 'X-Tenant-Id': context.tenantId } : {})
           },
           body: JSON.stringify({
             audience: body.audience,
@@ -245,9 +321,16 @@ export function registerDevEndpoints(app: FastifyInstance) {
     devApp.get("/dev/jwks.json", async (request, reply) => {
       try {
         // Proxy to the built-in Better Auth JWKS endpoint
-        const authUrl = process.env.BETTER_AUTH_URL || 'http://localhost:5000';
+        const authUrl = env.BETTER_AUTH_URL;
+        const maybeContext = config.mode === 'multi'
+          ? await resolveAuthContext(config, request)
+          : { tenantId: config.singleTenantId };
+
         const jwksResponse = await fetch(`${authUrl}/api/auth/jwks`, {
-          method: 'GET'
+          method: 'GET',
+          headers: {
+            ...(config.mode === 'multi' && maybeContext?.tenantId ? { 'X-Tenant-Id': maybeContext.tenantId } : {})
+          }
         });
         if (!jwksResponse.ok) {
           throw { status: 500, message: "Failed to fetch JWKS" };
@@ -263,10 +346,11 @@ export function registerDevEndpoints(app: FastifyInstance) {
     devApp.post("/dev/orgs", async (request, reply) => {
       try {
         const headers = toHeaders(request.headers);
-        const session = await requireUser(headers);
+        const context = (request as DevRequest).devAuthContext || await resolveAuthContext(config, request);
+        await requireUser(context.authInstance, headers);
         const body = request.body as any;
-        
-        const org = await auth.api.createOrganization({
+
+        const org = await context.authInstance.api.createOrganization({
           headers,
           body: {
             name: body.name,
@@ -284,12 +368,13 @@ export function registerDevEndpoints(app: FastifyInstance) {
     devApp.post("/dev/orgs/:orgId/members", async (request, reply) => {
       try {
         const headers = toHeaders(request.headers);
+        const context = (request as DevRequest).devAuthContext || await resolveAuthContext(config, request);
         const params = request.params as any;
         const body = request.body as any;
-        
-        await requireOrgRole(headers, params.orgId, ["owner", "admin"]);
-        
-        const member = await auth.api.createInvitation({
+
+        await requireOrgRole(context.authInstance, headers, params.orgId, ["owner", "admin"]);
+
+        const member = await context.authInstance.api.createInvitation({
           headers,
           body: {
             organizationId: params.orgId,
@@ -308,12 +393,13 @@ export function registerDevEndpoints(app: FastifyInstance) {
     devApp.patch("/dev/orgs/:orgId/members/:userId", async (request, reply) => {
       try {
         const headers = toHeaders(request.headers);
+        const context = (request as DevRequest).devAuthContext || await resolveAuthContext(config, request);
         const params = request.params as any;
         const body = request.body as any;
-        
-        await requireOrgRole(headers, params.orgId, ["owner", "admin"]);
-        
-        const member = await auth.api.updateMemberRole({
+
+        await requireOrgRole(context.authInstance, headers, params.orgId, ["owner", "admin"]);
+
+        const member = await context.authInstance.api.updateMemberRole({
           headers,
           body: {
             organizationId: params.orgId,
@@ -332,11 +418,12 @@ export function registerDevEndpoints(app: FastifyInstance) {
     devApp.get("/dev/orgs/:orgId/members", async (request, reply) => {
       try {
         const headers = toHeaders(request.headers);
+        const context = (request as DevRequest).devAuthContext || await resolveAuthContext(config, request);
         const params = request.params as any;
-        
-        await requireOrgRole(headers, params.orgId, ["owner", "admin", "member"]);
-        
-        const organization = await auth.api.getFullOrganization({
+
+        await requireOrgRole(context.authInstance, headers, params.orgId, ["owner", "admin", "member"]);
+
+        const organization = await context.authInstance.api.getFullOrganization({
           headers,
           query: { organizationId: params.orgId }
         });
@@ -353,10 +440,11 @@ export function registerDevEndpoints(app: FastifyInstance) {
     devApp.get("/dev/admin/users", async (request, reply) => {
       try {
         const headers = toHeaders(request.headers);
-        await requireAdmin(headers);
+        const context = (request as DevRequest).devAuthContext || await resolveAuthContext(config, request);
+        await requireAdmin(context.authInstance, headers);
         const query = request.query as any;
-        
-        const users = await auth.api.listUsers({
+
+        const users = await context.authInstance.api.listUsers({
           headers,
           query: {
             limit: query.limit || 50
@@ -373,10 +461,11 @@ export function registerDevEndpoints(app: FastifyInstance) {
     devApp.post("/dev/admin/impersonate", async (request, reply) => {
       try {
         const headers = toHeaders(request.headers);
-        await requireAdmin(headers);
+        const context = (request as DevRequest).devAuthContext || await resolveAuthContext(config, request);
+        await requireAdmin(context.authInstance, headers);
         const body = request.body as any;
-        
-        const result = await auth.api.impersonateUser({
+
+        const result = await context.authInstance.api.impersonateUser({
           headers,
           body: {
             userId: body.userId

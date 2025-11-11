@@ -4,9 +4,13 @@
  * Orchestrates tenant provisioning and lifecycle
  */
 
+import { randomUUID } from 'crypto';
 import pkg from 'pg';
 const { Pool } = pkg;
+import type { PoolClient } from 'pg';
 import { tenantManager } from '../multi-tenant/connection-manager.js';
+import { clearTenantAuthCache, getAuthStats } from '../multi-tenant/auth-factory.js';
+import { devEnabled, trustedOrigins } from '../env.js';
 
 const TENANT_IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 
@@ -27,7 +31,7 @@ export interface Tenant {
   name: string;
   slug: string;
   schema_name: string;
-  status: 'active' | 'suspended' | 'deleted';
+  status: 'active' | 'suspended' | 'deleted' | 'provisioning' | 'failed';
   metadata: Record<string, any>;
   created_at: Date;
   updated_at: Date;
@@ -43,6 +47,33 @@ export interface TenantMetrics {
   userCount: number;
   sessionCount: number;
   organizationCount: number;
+}
+
+export interface CrossTenantUserSummary {
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  user: {
+    id: string;
+    email: string;
+    name?: string | null;
+    role?: string | null;
+    banned?: boolean | null;
+    createdAt: Date;
+    updatedAt: Date;
+  };
+  sessionCount: number;
+  organizations: Array<{
+    id: string;
+    name: string;
+    role: string;
+  }>;
+}
+
+export interface SecuritySettings {
+  trustedOrigins: string[];
+  enableDevEndpoints: boolean;
+  apiKeyRotationDays: number | null;
 }
 
 export interface AuditLogEntry {
@@ -69,6 +100,25 @@ function normalizeTenantIdentifier(value: string, field: 'id' | 'slug'): string 
 }
 
 export class TenantService {
+  private adminSettingsInitialized = false;
+
+  private async ensureAdminSettingsTable(): Promise<void> {
+    if (this.adminSettingsInitialized) {
+      return;
+    }
+
+    await publicPool.query(`
+      CREATE TABLE IF NOT EXISTS authcore_system.admin_settings (
+        id INTEGER PRIMARY KEY,
+        settings JSONB NOT NULL,
+        updated_by TEXT,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    this.adminSettingsInitialized = true;
+  }
+
   /**
    * List all tenants
    */
@@ -101,82 +151,106 @@ export class TenantService {
     const schemaSuffix = tenantId.replace(/-/g, '_');
     const schemaName = `tenant_${schemaSuffix}`;
 
-    // Ensure identifiers are available
-    const existing = await publicPool.query<{ id: string }>(
-      `SELECT id FROM public.tenants WHERE id = $1 OR slug = $2 LIMIT 1`,
-      [tenantId, tenantSlug]
-    );
+    const client = await publicPool.connect();
 
-    if ((existing.rowCount ?? 0) > 0) {
-      throw new TenantValidationError('Tenant with the provided id or slug already exists.');
+    try {
+      await client.query('BEGIN');
+
+      // Ensure identifiers are available within the transaction scope
+      const existing = await client.query<{ id: string }>(
+        `SELECT id FROM public.tenants WHERE id = $1 OR slug = $2 LIMIT 1`,
+        [tenantId, tenantSlug]
+      );
+
+      if ((existing.rowCount ?? 0) > 0) {
+        throw new TenantValidationError('Tenant with the provided id or slug already exists.');
+      }
+
+      const inserted = await client.query<Tenant>(`
+        INSERT INTO public.tenants (id, name, slug, schema_name, status, metadata)
+        VALUES ($1, $2, $3, $4, 'provisioning', '{}'::jsonb)
+        RETURNING *
+      `, [tenantId, input.name, tenantSlug, schemaName]);
+
+      const tenantRow = inserted.rows[0];
+
+      console.log(`[TenantService] Created tenant registry entry: ${tenantRow.id}`);
+
+      // Provision schema within the same transaction
+      await this.provisionTenantSchema(client, tenantRow);
+
+      const activated = await client.query<Tenant>(`
+        UPDATE public.tenants
+        SET
+          status = 'active',
+          metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+            'provisioned_at', NOW(),
+            'schema', schema_name
+          ),
+          updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `, [tenantId]);
+
+      await client.query('COMMIT');
+
+      const tenant = activated.rows[0];
+
+      const tenantRecord: Tenant = {
+        ...tenant,
+        slug: tenantSlug,
+        id: tenantId,
+        schema_name: schemaName,
+        metadata: tenant.metadata || {}
+      };
+
+      clearTenantAuthCache(tenantRecord.id);
+      await tenantManager.registerTenant(tenantRecord);
+
+      console.log(`[TenantService] ✅ Tenant ${tenantRecord.id} provisioned successfully`);
+
+      return tenantRecord;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      console.error(`[TenantService] ❌ Provisioning failed for ${tenantId}:`, error);
+
+      if (error instanceof TenantValidationError) {
+        throw error;
+      }
+
+      throw new Error('Tenant provisioning failed. Check logs for details and retry.');
+    } finally {
+      client.release();
     }
-
-    // 1. Insert to public.tenants
-    const result = await publicPool.query<Tenant>(`
-      INSERT INTO public.tenants (id, name, slug, schema_name, status, metadata)
-      VALUES ($1, $2, $3, $4, 'active', '{}')
-      RETURNING *
-    `, [tenantId, input.name, tenantSlug, schemaName]);
-
-    const tenant = result.rows[0];
-
-    console.log(`[TenantService] Created tenant registry: ${tenant.id}`);
-
-    // 2. Provision schema synchronously to ensure readiness
-    await this.provisionTenantSchema(tenant);
-
-    const tenantRecord: Tenant = {
-      ...tenant,
-      slug: tenantSlug,
-      id: tenantId,
-      schema_name: schemaName,
-      metadata: tenant.metadata || {}
-    };
-
-    await tenantManager.registerTenant(tenantRecord);
-
-    return tenantRecord;
   }
 
   /**
    * Provision tenant schema (clone Better Auth tables)
    */
-  private async provisionTenantSchema(tenant: Tenant): Promise<void> {
+  private async provisionTenantSchema(client: PoolClient, tenant: Tenant): Promise<void> {
     console.log(`[TenantService] Provisioning schema: ${tenant.schema_name}`);
-    
+
     const betterAuthTables = [
-      'users', 'accounts', 'sessions', 'verificationtokens', 
-      'api_keys', 'organizations', 'organization_members', 
+      'users', 'accounts', 'sessions', 'verificationtokens',
+      'api_keys', 'organizations', 'organization_members',
       'verification', 'member', 'invitation', 'apikey', 'jwks'
     ];
 
     try {
       // Create schema
-      await publicPool.query(`CREATE SCHEMA IF NOT EXISTS "${tenant.schema_name}"`);
+      await client.query(`CREATE SCHEMA IF NOT EXISTS "${tenant.schema_name}"`);
       console.log(`[TenantService] Schema created: ${tenant.schema_name}`);
 
       // Clone tables
       for (const table of betterAuthTables) {
-        await publicPool.query(`
-          CREATE TABLE IF NOT EXISTS "${tenant.schema_name}"."${table}" 
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS "${tenant.schema_name}"."${table}"
           (LIKE "public"."${table}" INCLUDING ALL)
         `);
       }
-      
-      console.log(`[TenantService] Tables cloned for: ${tenant.schema_name}`);
 
-      console.log(`[TenantService] ✅ Tenant ${tenant.id} provisioned successfully`);
-      
+      console.log(`[TenantService] Tables cloned for: ${tenant.schema_name}`);
     } catch (error) {
-      console.error(`[TenantService] ❌ Provisioning failed:`, error);
-      
-      // Update status to failed
-      await publicPool.query(`
-        UPDATE public.tenants 
-        SET metadata = jsonb_set(metadata, '{provisioning_error}', $1::jsonb)
-        WHERE id = $2
-      `, [JSON.stringify(String(error)), tenant.id]);
-      
       throw error;
     }
   }
@@ -197,6 +271,7 @@ export class TenantService {
       throw new TenantValidationError(`Tenant not found: ${tenantId}`);
     }
 
+    clearTenantAuthCache(tenantId);
     await tenantManager.registerTenant({
       ...tenant,
       metadata: tenant.metadata || {}
@@ -221,6 +296,7 @@ export class TenantService {
       throw new TenantValidationError(`Tenant not found: ${tenantId}`);
     }
 
+    clearTenantAuthCache(tenantId);
     await tenantManager.registerTenant({
       ...tenant,
       metadata: tenant.metadata || {}
@@ -245,6 +321,7 @@ export class TenantService {
       throw new TenantValidationError(`Tenant not found: ${tenantId}`);
     }
 
+    clearTenantAuthCache(tenantId);
     await tenantManager.registerTenant({
       ...tenant,
       metadata: tenant.metadata || {}
@@ -283,6 +360,159 @@ export class TenantService {
     }
   }
 
+  async searchUsersAcrossTenants(options: {
+    query?: string;
+    tenantId?: string;
+    limit?: number;
+  }): Promise<CrossTenantUserSummary[]> {
+    const searchTerm = options.query?.trim();
+    const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+
+    const targetTenants = options.tenantId
+      ? (() => {
+          const tenant = tenantManager.resolveTenant(options.tenantId!);
+          if (!tenant) {
+            throw new TenantValidationError(`Tenant not found: ${options.tenantId}`);
+          }
+          return [tenant];
+        })()
+      : tenantManager.getAllTenants().filter(t => t.status === 'active');
+
+    const summaries: CrossTenantUserSummary[] = [];
+
+    for (const tenant of targetTenants) {
+      if (tenant.status !== 'active') {
+        continue;
+      }
+
+      if (summaries.length >= limit) {
+        break;
+      }
+
+      try {
+        const client = tenantManager.getClient(tenant.id);
+
+        const where: any = {};
+        if (searchTerm) {
+          where.OR = [
+            { email: { contains: searchTerm, mode: 'insensitive' } },
+            { name: { contains: searchTerm, mode: 'insensitive' } },
+            { id: searchTerm }
+          ];
+        }
+
+        const users = await client.user.findMany({
+          where,
+          take: Math.max(Math.min(limit - summaries.length, limit), 1),
+          orderBy: { createdAt: 'desc' }
+        });
+
+        const [memberships, sessionCounts] = await Promise.all([
+          Promise.all(
+            users.map(user =>
+              client.organizationMember.findMany({
+                where: { userId: user.id },
+                select: {
+                  role: true,
+                  organization: {
+                    select: {
+                      id: true,
+                      name: true
+                    }
+                  }
+                }
+              })
+            )
+          ),
+          Promise.all(
+            users.map(user =>
+              client.session.count({
+                where: {
+                  userId: user.id,
+                  expiresAt: { gt: new Date() }
+                }
+              })
+            )
+          )
+        ]);
+
+        users.forEach((user, index) => {
+          if (summaries.length >= limit) {
+            return;
+          }
+
+          summaries.push({
+            tenantId: tenant.id,
+            tenantName: tenant.name,
+            tenantSlug: tenant.slug,
+            user: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role,
+              banned: user.banned,
+              createdAt: user.createdAt,
+              updatedAt: user.updatedAt
+            },
+            sessionCount: sessionCounts[index] ?? 0,
+            organizations: memberships[index]?.map(member => ({
+              id: member.organization.id,
+              name: member.organization.name,
+              role: member.role
+            })) || []
+          });
+        });
+
+        if (summaries.length >= limit) {
+          break;
+        }
+      } catch (error) {
+        console.error(`[TenantService] Cross-tenant user search failed for ${tenant.id}:`, error);
+      }
+    }
+
+    return summaries;
+  }
+
+  async revokeUserSessions(tenantId: string, userId: string): Promise<number> {
+    try {
+      const client = tenantManager.getClient(tenantId);
+      const result = await client.session.deleteMany({
+        where: { userId }
+      });
+      return result.count;
+    } catch (error) {
+      console.error(`[TenantService] Failed to revoke sessions for ${tenantId}/${userId}:`, error);
+      throw new Error('Failed to revoke user sessions');
+    }
+  }
+
+  async createSupportSession(tenantId: string, userId: string, minutes = 30) {
+    try {
+      const client = tenantManager.getClient(tenantId);
+      const expiresAt = new Date(Date.now() + Math.max(minutes, 1) * 60 * 1000);
+      const token = `support_${randomUUID()}`;
+
+      const session = await client.session.create({
+        data: {
+          id: randomUUID(),
+          token,
+          userId,
+          expiresAt,
+          impersonatedBy: 'admin_support'
+        }
+      });
+
+      return {
+        token: session.token,
+        expiresAt: session.expiresAt
+      };
+    } catch (error) {
+      console.error(`[TenantService] Failed to create support session for ${tenantId}/${userId}:`, error);
+      throw new Error('Failed to create support session');
+    }
+  }
+
   /**
    * Get system-wide metrics
    */
@@ -295,6 +525,8 @@ export class TenantService {
     const totalTenants = tenants.length;
     const activeTenants = tenants.filter(t => t.status === 'active');
     const suspendedTenants = tenants.filter(t => t.status === 'suspended');
+    const provisioningTenants = tenants.filter(t => t.status === 'provisioning');
+    const failedTenants = tenants.filter(t => t.status === 'failed');
 
     const aggregate = await Promise.all(
       activeTenants.map(async tenant => this.getTenantMetrics(tenant.id))
@@ -307,10 +539,104 @@ export class TenantService {
       totalTenants,
       activeTenants: activeTenants.length,
       suspendedTenants: suspendedTenants.length,
+      provisioningTenants: provisioningTenants.length,
+      failedTenants: failedTenants.length,
       totalUsers,
       activeSessions,
       connections: tenantManager.getStats()
     };
+  }
+
+  async getAdminOverview() {
+    const [metrics, authCache] = await Promise.all([
+      this.getSystemMetrics(),
+      Promise.resolve(getAuthStats())
+    ]);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      metrics,
+      authCache
+    };
+  }
+
+  private getDefaultSecuritySettings(): SecuritySettings {
+    return {
+      trustedOrigins,
+      enableDevEndpoints: devEnabled,
+      apiKeyRotationDays: null
+    };
+  }
+
+  async getSecuritySettings(): Promise<SecuritySettings> {
+    await this.ensureAdminSettingsTable();
+
+    const result = await publicPool.query<{ settings: any }>(`
+      SELECT settings FROM authcore_system.admin_settings WHERE id = 1
+    `);
+
+    if ((result.rowCount ?? 0) === 0) {
+      return this.getDefaultSecuritySettings();
+    }
+
+    const stored = result.rows[0]?.settings || {};
+    const defaults = this.getDefaultSecuritySettings();
+
+    const merged: SecuritySettings = {
+      trustedOrigins: Array.isArray(stored.trustedOrigins)
+        ? Array.from(new Set(stored.trustedOrigins.map((origin: string) => String(origin).trim()).filter(Boolean)))
+        : defaults.trustedOrigins,
+      enableDevEndpoints: typeof stored.enableDevEndpoints === 'boolean'
+        ? stored.enableDevEndpoints
+        : defaults.enableDevEndpoints,
+      apiKeyRotationDays: typeof stored.apiKeyRotationDays === 'number'
+        ? stored.apiKeyRotationDays
+        : defaults.apiKeyRotationDays
+    };
+
+    return merged;
+  }
+
+  async updateSecuritySettings(
+    adminUserId: string,
+    updates: Partial<SecuritySettings>
+  ): Promise<SecuritySettings> {
+    await this.ensureAdminSettingsTable();
+
+    const current = await this.getSecuritySettings();
+
+    const trusted = updates.trustedOrigins
+      ? Array.from(new Set(
+          updates.trustedOrigins
+            .map(origin => origin.trim())
+            .filter(Boolean)
+        ))
+      : current.trustedOrigins;
+
+    const rotation = updates.apiKeyRotationDays === null
+      ? null
+      : typeof updates.apiKeyRotationDays === 'number'
+        ? Math.max(0, Math.floor(updates.apiKeyRotationDays))
+        : current.apiKeyRotationDays;
+
+    const payload: SecuritySettings = {
+      trustedOrigins: trusted.length ? trusted : current.trustedOrigins,
+      enableDevEndpoints: typeof updates.enableDevEndpoints === 'boolean'
+        ? updates.enableDevEndpoints
+        : current.enableDevEndpoints,
+      apiKeyRotationDays: rotation
+    };
+
+    await publicPool.query(`
+      INSERT INTO authcore_system.admin_settings (id, settings, updated_by, updated_at)
+      VALUES (1, $1::jsonb, $2, NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        settings = EXCLUDED.settings,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = EXCLUDED.updated_at
+    `, [JSON.stringify(payload), adminUserId]);
+
+    return payload;
   }
 
   /**
@@ -331,18 +657,81 @@ export class TenantService {
     `, [adminUserId, action, targetType, targetId, JSON.stringify(details), ipAddress || null]);
   }
 
-  async getAuditLogs(limit: number, offset: number): Promise<{ logs: AuditLogEntry[]; total: number }> {
+  async getAuditLogs(
+    limit: number,
+    offset: number,
+    filters?: {
+      action?: string;
+      targetType?: string;
+      targetId?: string;
+      adminUserId?: string;
+      from?: string;
+      to?: string;
+      search?: string;
+    }
+  ): Promise<{ logs: AuditLogEntry[]; total: number }> {
     try {
+      const conditions: string[] = [];
+      const values: any[] = [];
+
+      if (filters?.action) {
+        values.push(filters.action);
+        conditions.push(`action = $${values.length}`);
+      }
+
+      if (filters?.targetType) {
+        values.push(filters.targetType);
+        conditions.push(`target_type = $${values.length}`);
+      }
+
+      if (filters?.targetId) {
+        values.push(filters.targetId);
+        conditions.push(`target_id = $${values.length}`);
+      }
+
+      if (filters?.adminUserId) {
+        values.push(filters.adminUserId);
+        conditions.push(`admin_user_id = $${values.length}`);
+      }
+
+      if (filters?.from) {
+        const fromDate = new Date(filters.from);
+        if (!Number.isNaN(fromDate.getTime())) {
+          values.push(fromDate);
+          conditions.push(`created_at >= $${values.length}`);
+        }
+      }
+
+      if (filters?.to) {
+        const toDate = new Date(filters.to);
+        if (!Number.isNaN(toDate.getTime())) {
+          values.push(toDate);
+          conditions.push(`created_at <= $${values.length}`);
+        }
+      }
+
+      if (filters?.search) {
+        values.push(`%${filters.search.trim().toLowerCase()}%`);
+        const placeholder = `$${values.length}`;
+        conditions.push(`(LOWER(action) LIKE ${placeholder} OR LOWER(target_id) LIKE ${placeholder})`);
+      }
+
+      const whereClause = conditions.length > 0
+        ? `WHERE ${conditions.join(' AND ')}`
+        : '';
+
       const logsResult = await publicPool.query<AuditLogEntry>(`
         SELECT id, admin_user_id, action, target_type, target_id, details, ip_address, created_at
         FROM authcore_system.audit_actions
+        ${whereClause}
         ORDER BY created_at DESC
-        LIMIT $1 OFFSET $2
-      `, [limit, offset]);
+        LIMIT $${values.length + 1} OFFSET $${values.length + 2}
+      `, [...values, limit, offset]);
 
       const countResult = await publicPool.query<{ total: string }>(`
         SELECT COUNT(*) as total FROM authcore_system.audit_actions
-      `);
+        ${whereClause}
+      `, values);
 
       const logs = logsResult.rows.map(log => {
         let details: Record<string, any> = {};

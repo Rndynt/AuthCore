@@ -5,13 +5,15 @@ import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { 
-  LayoutDashboard, 
-  Users, 
-  FileText, 
+import {
+  LayoutDashboard,
+  Users,
+  FileText,
   LogOut,
   Menu,
-  Shield
+  Shield,
+  UserSearch,
+  ShieldCheck
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -60,6 +62,8 @@ export default function DashboardLayout({
   const navItems = [
     { href: '/', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/tenants', label: 'Tenants', icon: Users },
+    { href: '/users', label: 'Users', icon: UserSearch },
+    { href: '/security', label: 'Security', icon: ShieldCheck },
     { href: '/audit', label: 'Audit Logs', icon: FileText },
   ];
 
@@ -69,8 +73,8 @@ export default function DashboardLayout({
         <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
           <Shield className="w-5 h-5 text-primary-foreground" />
         </div>
-        <span className="font-bold text-lg">AuthCoree
-          <p className="text-xs text-gray-600">console</p>
+        <span className="font-bold text-lg">AuthCore
+          <p className="text-xs text-gray-600">Console</p>
         </span>
       </div>
       

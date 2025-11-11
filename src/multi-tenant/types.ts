@@ -7,7 +7,7 @@ export interface Tenant {
   name: string;
   slug: string;
   schema_name: string;
-  status: 'active' | 'suspended' | 'deleted';
+  status: 'active' | 'suspended' | 'deleted' | 'provisioning' | 'failed';
   metadata?: Record<string, any>;
   created_at: Date;
   updated_at: Date;
