@@ -1,17 +1,59 @@
-const rawBase = process.env.NEXT_PUBLIC_API_URL
-  ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')
-  : '';
+const envApiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '');
+const envAuthService = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL?.replace(/\/$/, '');
 
-const API_BASE =
-  rawBase && rawBase.includes('/.netlify/functions') && !rawBase.endsWith('/auth')
-    ? `${rawBase}/auth`
-    : rawBase;
+const relativeApiPath = envApiUrl && !/^https?:\/\//i.test(envApiUrl)
+  ? (envApiUrl.startsWith('/') ? envApiUrl : `/${envApiUrl}`)
+  : undefined;
 
-export const apiBaseUrl = API_BASE;
+const absoluteEnvBase = (() => {
+  if (envApiUrl && /^https?:\/\//i.test(envApiUrl)) {
+    return envApiUrl;
+  }
+  if (envAuthService && /^https?:\/\//i.test(envAuthService)) {
+    return `${envAuthService}/.netlify/functions`;
+  }
+  return undefined;
+})();
+
+const ensureAuthSuffix = (base: string) => {
+  const trimmed = base.replace(/\/$/, '');
+  if (trimmed.includes('/.netlify/functions') && !trimmed.endsWith('/auth')) {
+    return `${trimmed}/auth`;
+  }
+  return trimmed;
+};
+
+let cachedBase: string | undefined = absoluteEnvBase
+  ? ensureAuthSuffix(absoluteEnvBase)
+  : undefined;
+
+const resolveApiBase = (): string => {
+  if (cachedBase) return cachedBase;
+
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin.replace(/\/$/, '');
+    const relative = relativeApiPath ?? '/.netlify/functions';
+    cachedBase = ensureAuthSuffix(`${origin}${relative}`);
+    return cachedBase;
+  }
+
+  throw new Error(
+    'Unable to resolve API base URL. Set NEXT_PUBLIC_API_URL or NEXT_PUBLIC_AUTH_SERVICE_URL to an absolute URL.'
+  );
+};
+
+export const apiBaseUrl = (() => {
+  try {
+    return resolveApiBase();
+  } catch {
+    return '';
+  }
+})();
 
 export const apiClient = {
   async request(endpoint: string, options?: RequestInit) {
-    const res = await fetch(`${API_BASE}${endpoint}`, {
+    const base = resolveApiBase();
+    const res = await fetch(`${base}${endpoint}`, {
       ...options,
       credentials: 'include',
       headers: {
