@@ -1,4 +1,4 @@
-import type { Handler } from "@netlify/functions";
+import type { Handler, HandlerEvent } from "@netlify/functions";
 import { auth } from "../../src/auth.js";
 import { trustedOrigins } from "../../src/env.js";
 
@@ -6,6 +6,33 @@ const allowOrigin = (origin?: string) => {
   if (!origin) return trustedOrigins[0] ?? "*";
   return trustedOrigins.includes(origin) ? origin : trustedOrigins[0] ?? "*";
 };
+
+/**
+ * Netlify rewrites (status = 200) strip the original pathname when a request is
+ * proxied to a function. The original value is forwarded via `x-nf-original-*`
+ * headers, so we need to stitch it back together before handing the request to
+ * Better Auth. Without this, the handler only sees `/.netlify/functions/auth`
+ * and fails to route `/admin/auth/*` or `/api/auth/*` requests.
+ */
+function getRequestUrl(event: HandlerEvent) {
+  const url = new URL(event.rawUrl);
+
+  const originalPath =
+    event.headers["x-nf-original-path"] ??
+    event.headers["x-nf-original-pathname"] ??
+    event.headers["x-original-path"];
+
+  if (originalPath) {
+    url.pathname = originalPath;
+  }
+
+  const originalQuery = event.headers["x-nf-original-query"];
+  if (originalQuery && originalQuery.length > 0) {
+    url.search = originalQuery.startsWith("?") ? originalQuery : `?${originalQuery}`;
+  }
+
+  return url;
+}
 
 export const handler: Handler = async (event) => {
   // CORS preflight
@@ -22,7 +49,7 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  const url = new URL(event.rawUrl);
+  const url = getRequestUrl(event);
   const headers = new Headers();
   for (const [k, v] of Object.entries(event.headers)) if (v) headers.set(k, String(v));
 
