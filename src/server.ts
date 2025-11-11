@@ -4,6 +4,7 @@ import fastifyStatic from "@fastify/static";
 import path from "path";
 import { fileURLToPath } from "url";
 import { readFile } from "fs/promises";
+import { createRequire } from "node:module";
 import { auth } from "./auth.js";
 import { env, trustedOrigins, devEnabled } from "./env.js";
 import { registerDevEndpoints } from "./dev.js";
@@ -25,21 +26,39 @@ const __dirname = path.dirname(__filename);
 
 const isDev = process.env.NODE_ENV !== "production";
 
+const require = createRequire(import.meta.url);
+
+const prettyTransport = (() => {
+  if (!isDev) {
+    return null;
+  }
+
+  try {
+    require.resolve("pino-pretty");
+  } catch {
+    return null;
+  }
+
+  return {
+    target: "pino-pretty",
+    options: {
+      colorize: true,
+      translateTime: "HH:MM:ss.l",
+      ignore: "pid,hostname"
+    }
+  } as const;
+})();
+
 const app = Fastify({
-  logger: isDev
-    ? {
-        transport: {
-          target: "pino-pretty",
-          options: {
-            colorize: true,
-            translateTime: "HH:MM:ss.l",
-            ignore: "pid,hostname"
-          }
-        }
-      }
-    : true,
+  logger: prettyTransport ? { transport: prettyTransport } : true,
   trustProxy: true
 });
+
+if (isDev && !prettyTransport) {
+  app.log.warn(
+    "Pretty logging disabled: install 'pino-pretty' to enable pretty-printed logs in development."
+  );
+}
 
 app.register(requestLogger);
 
