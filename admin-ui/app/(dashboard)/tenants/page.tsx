@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
@@ -22,24 +22,19 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Plus, MoreVertical, CheckCircle, XCircle, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, MoreVertical, CheckCircle, XCircle, Trash2, AlertCircle, Info } from 'lucide-react';
 import { CreateTenantDialog } from '@/components/tenants/create-tenant-dialog';
-
-interface AdminTenant {
-  id: string;
-  name: string;
-  slug: string;
-  status: 'active' | 'suspended' | 'deleted' | 'provisioning' | 'failed';
-  schemaName?: string;
-  metadata?: Record<string, unknown>;
-  createdAt?: string;
-  updatedAt?: string;
-}
+import { TenantDetailsSheet } from '@/components/tenants/tenant-details-sheet';
+import type { AdminTenant } from '@/components/tenants/types';
+import { useSearchParams } from 'next/navigation';
 
 export default function TenantsPage() {
   const queryClient = useQueryClient();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [selectedTenant, setSelectedTenant] = useState<AdminTenant | null>(null);
+  const searchParams = useSearchParams();
 
   const { data: tenantsData, isLoading } = useQuery({
     queryKey: ['tenants'],
@@ -80,6 +75,23 @@ export default function TenantsPage() {
   });
 
   const tenants: AdminTenant[] = tenantsData?.tenants || [];
+
+  useEffect(() => {
+    const tenantParam = searchParams.get('tenantId');
+    if (!tenantParam || tenants.length === 0) {
+      return;
+    }
+
+    if (selectedTenant?.id === tenantParam && detailsOpen) {
+      return;
+    }
+
+    const match = tenants.find((tenant) => tenant.id === tenantParam);
+    if (match) {
+      setSelectedTenant(match);
+      setDetailsOpen(true);
+    }
+  }, [searchParams, tenants, selectedTenant, detailsOpen]);
 
   const renderStatus = (status: string) => {
     switch (status) {
@@ -169,7 +181,7 @@ export default function TenantsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                tenants.map((tenant: any) => (
+                tenants.map((tenant: AdminTenant) => (
                   <TableRow key={tenant.id}>
                     <TableCell className="font-mono text-sm">{tenant.id}</TableCell>
                     <TableCell className="font-medium">{tenant.name}</TableCell>
@@ -192,6 +204,15 @@ export default function TenantsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedTenant(tenant);
+                              setDetailsOpen(true);
+                            }}
+                          >
+                            <Info className="w-4 h-4 mr-2" />
+                            View details
+                          </DropdownMenuItem>
                           {tenant.status === 'active' ? (
                             <DropdownMenuItem
                               onClick={() => suspendMutation.mutate(tenant.id)}
@@ -235,6 +256,16 @@ export default function TenantsPage() {
       <CreateTenantDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
+      />
+      <TenantDetailsSheet
+        tenant={selectedTenant}
+        open={detailsOpen}
+        onOpenChange={(open) => {
+          setDetailsOpen(open);
+          if (!open) {
+            setSelectedTenant(null);
+          }
+        }}
       />
     </div>
   );
