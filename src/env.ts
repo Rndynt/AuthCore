@@ -27,11 +27,13 @@ const envSchema = z.object({
   BETTER_AUTH_SECRET: z.string().min(24).default(DEFAULT_DEV_SECRET),
   TRUSTED_ORIGINS: z.string().default(getDefaultTrustedOrigins()),
   DATABASE_URL: z.string().url(),
-  ENABLE_DEV_ENDPOINTS: z.string().default("true"),
+  ENABLE_DEV_ENDPOINTS: z.string().default("false"),
   ADMIN_API_KEY: z.string().optional(),
   AUTH_MODE: z.enum(["single", "multi"]).default("single"),
   TENANT_ID: z.string().default("default-tenant"),
-  TENANT_SCHEMA: z.string().default("public")
+  TENANT_SCHEMA: z.string().default("public"),
+  NESTED_TENANCY_ENABLED: z.string().default("false"),
+  TENANT_CLIENT_IDLE_TTL_MS: z.coerce.number().default(5 * 60 * 1000)
 });
 
 export const env = envSchema.parse(process.env);
@@ -47,4 +49,6 @@ export const trustedOrigins = env.TRUSTED_ORIGINS
   .map(s => s.trim())
   .filter(Boolean);
 
-export const devEnabled = process.env.ENABLE_DEV_ENDPOINTS === "true";
+export const devEnabled = env.ENABLE_DEV_ENDPOINTS === "true";
+
+export const nestedTenancyEnabled = env.NESTED_TENANCY_ENABLED === "true";

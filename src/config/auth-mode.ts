@@ -6,6 +6,8 @@
  * - multi: Multi-tenant instance supporting multiple applications
  */
 
+import { env, nestedTenancyEnabled } from "../env.js";
+
 export type AuthMode = 'single' | 'multi';
 
 export interface AuthConfig {
@@ -39,11 +41,11 @@ export interface AuthConfig {
  * Load AuthCore configuration from environment variables
  */
 export function getAuthConfig(): AuthConfig {
-  const mode = (process.env.AUTH_MODE || 'multi') as AuthMode;
-  const nestedEnabled = process.env.NESTED_TENANCY_ENABLED === 'true';
+  const mode = env.AUTH_MODE;
+  const nestedEnabled = nestedTenancyEnabled;
   
   // Validate single-tenant mode requirements
-  if (mode === 'single' && !process.env.TENANT_ID) {
+  if (mode === 'single' && !env.TENANT_ID) {
     throw new Error(
       'TENANT_ID environment variable is required when AUTH_MODE=single'
     );
@@ -59,8 +61,8 @@ export function getAuthConfig(): AuthConfig {
   const config: AuthConfig = {
     mode,
     nestedTenancyEnabled: mode === 'multi' && nestedEnabled,
-    singleTenantId: process.env.TENANT_ID,
-    singleTenantSchema: process.env.TENANT_SCHEMA || 'public'
+    singleTenantId: mode === 'single' ? env.TENANT_ID : undefined,
+    singleTenantSchema: mode === 'single' ? env.TENANT_SCHEMA : undefined
   };
 
   return config;

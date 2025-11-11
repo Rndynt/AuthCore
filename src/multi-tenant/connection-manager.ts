@@ -7,6 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import pkg from 'pg';
 import type { Pool as PoolType } from 'pg';
 const { Pool } = pkg;
+import { env } from '../env.js';
 import { Tenant, TenantRegistry, TenantNotFoundError, TenantSuspendedError } from './types';
 
 interface ConnectionMetadata {
@@ -26,14 +27,18 @@ export class TenantConnectionManager {
   };
   private initialized = false;
   private pool: PoolType;
+  private cleanupInterval: NodeJS.Timeout | null = null;
+  private readonly idleTtlMs = env.TENANT_CLIENT_IDLE_TTL_MS;
 
   constructor() {
     this.pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString: env.DATABASE_URL,
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
     });
+
+    this.startCleanupScheduler();
   }
 
   /**
@@ -198,7 +203,11 @@ export class TenantConnectionManager {
       const key = tenant ? tenant.id : tenantId;
       const client = this.connections.get(key);
       if (client) {
-        await client.$disconnect();
+        try {
+          await client.$disconnect();
+        } catch (error) {
+          console.error(`⚠️  Error disconnecting tenant client ${key}:`, error);
+        }
         this.connections.delete(key);
         this.connectionMetadata.delete(key);
         console.log(`🔌 Disconnected tenant: ${key}`);
@@ -206,15 +215,7 @@ export class TenantConnectionManager {
     } else {
       // Disconnect all
       console.log('🔌 Disconnecting all tenant connections...');
-      await Promise.all(
-        Array.from(this.connections.values()).map(client => 
-          client.$disconnect().catch(err => 
-            console.error('Error disconnecting client:', err)
-          )
-        )
-      );
-      this.connections.clear();
-      this.connectionMetadata.clear();
+      await this.pruneIdleConnections(true);
       console.log('✅ All tenant connections disconnected');
     }
   }
@@ -238,23 +239,60 @@ export class TenantConnectionManager {
     // Reinitialize
     this.initialized = false;
     await this.initialize();
-    
+
     console.log('✅ Tenant registry reloaded');
+  }
+
+  private startCleanupScheduler() {
+    if (this.cleanupInterval) {
+      this.cleanupInterval.unref?.();
+      return;
+    }
+
+    this.cleanupInterval = setInterval(() => {
+      this.pruneIdleConnections().catch(error => {
+        console.error('⚠️  Failed to prune idle tenant connections:', error);
+      });
+    }, this.idleTtlMs);
+
+    this.cleanupInterval.unref?.();
+  }
+
+  private async pruneIdleConnections(force = false) {
+    const now = Date.now();
+    for (const [tenantId, meta] of this.connectionMetadata.entries()) {
+      if (!force && now - meta.lastUsedAt.getTime() < this.idleTtlMs) {
+        continue;
+      }
+
+      const client = this.connections.get(tenantId);
+      if (!client) {
+        this.connectionMetadata.delete(tenantId);
+        continue;
+      }
+
+      try {
+        await client.$disconnect();
+        console.log(`🧹 Closed idle Prisma client for tenant: ${tenantId}`);
+      } catch (error) {
+        console.error(`⚠️  Failed to close Prisma client for tenant ${tenantId}:`, error);
+      }
+
+      this.connections.delete(tenantId);
+      this.connectionMetadata.delete(tenantId);
+    }
   }
 
   /**
    * Build schema-specific database URL
    */
   private buildSchemaUrl(schemaName: string): string {
-    const baseUrl = process.env.DATABASE_URL;
-    if (!baseUrl) {
-      throw new Error('DATABASE_URL environment variable not set');
-    }
+    const baseUrl = env.DATABASE_URL;
 
     // Parse URL and add schema parameter
     const url = new URL(baseUrl);
     url.searchParams.set('schema', schemaName);
-    
+
     return url.toString();
   }
 
@@ -288,7 +326,8 @@ export class TenantConnectionManager {
         totalCount: this.pool.totalCount,
         idleCount: this.pool.idleCount,
         waitingCount: this.pool.waitingCount
-      }
+      },
+      idleConnectionTtlMs: this.idleTtlMs
     };
   }
 
@@ -361,6 +400,10 @@ export class TenantConnectionManager {
    */
   async shutdown(): Promise<void> {
     console.log('🛑 Shutting down tenant connection manager...');
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
     await this.disconnect();
     await this.pool.end();
     this.initialized = false;
