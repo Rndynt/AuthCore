@@ -48,6 +48,12 @@ function getRequestUrl(event: HandlerEvent) {
     url.search = originalQuery.startsWith("?") ? originalQuery : `?${originalQuery}`;
   }
 
+  const functionPrefix = "/.netlify/functions/auth";
+  if (url.pathname.startsWith(functionPrefix)) {
+    const trimmed = url.pathname.slice(functionPrefix.length);
+    url.pathname = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  }
+
   return url;
 }
 
@@ -77,6 +83,9 @@ export const handler: Handler = async (event) => {
 
   const url = getRequestUrl(event);
   const authInstance = pickAuthInstance(url);
+  if (authInstance === adminAuth && url.pathname.startsWith("/admin/auth")) {
+    url.pathname = url.pathname.replace("/admin/auth", "/api/auth");
+  }
   const headers = new Headers();
   for (const [k, v] of Object.entries(event.headers)) if (v) headers.set(k, String(v));
 
