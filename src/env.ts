@@ -14,7 +14,22 @@ const getDevUrl = () => {
 // Helper to get trusted origins for development
 const getDefaultTrustedOrigins = () => {
   if (process.env.REPLIT_DEV_DOMAIN) {
-    return `https://${process.env.REPLIT_DEV_DOMAIN},http://localhost:5000,http://localhost:3001,http://0.0.0.0:3001,https://0xauthcorex0.netlify.app`;
+    const origins = [
+      `https://${process.env.REPLIT_DEV_DOMAIN}`,
+      "http://localhost:5000",
+      "http://localhost:3001",
+      "http://0.0.0.0:3001",
+      "https://0xauthcorex0.netlify.app"
+    ];
+    
+    // Add Replit subdomain variants (e.g., ~00-xxx.spock.replit.dev)
+    // Extract the suffix after the last "-00-" to support tilde subdomains
+    const match = process.env.REPLIT_DEV_DOMAIN.match(/-00-(.+)$/);
+    if (match) {
+      origins.push(`https://~00-${match[1]}`);
+    }
+    
+    return origins.join(",");
   }
   return "http://localhost:5000,http://localhost:3001,http://0.0.0.0:3001";
 };
