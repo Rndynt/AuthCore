@@ -22,13 +22,16 @@ const getDefaultTrustedOrigins = () => {
 const DEFAULT_DEV_SECRET = "default-development-secret-key-change-in-production-min-24-chars";
 
 const envSchema = z.object({
-  PORT: z.coerce.number().default(3001),
+  PORT: z.coerce.number().default(5000),
   BETTER_AUTH_URL: z.string().url().default(getDevUrl()),
   BETTER_AUTH_SECRET: z.string().min(24).default(DEFAULT_DEV_SECRET),
   TRUSTED_ORIGINS: z.string().default(getDefaultTrustedOrigins()),
   DATABASE_URL: z.string().url(),
-  ENABLE_DEV_ENDPOINTS: z.string().default("false"),
-  ADMIN_API_KEY: z.string().optional()
+  ENABLE_DEV_ENDPOINTS: z.string().default("true"),
+  ADMIN_API_KEY: z.string().optional(),
+  AUTH_MODE: z.enum(["single", "multi"]).default("single"),
+  TENANT_ID: z.string().default("default-tenant"),
+  TENANT_SCHEMA: z.string().default("public")
 });
 
 export const env = envSchema.parse(process.env);
