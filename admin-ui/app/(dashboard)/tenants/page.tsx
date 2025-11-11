@@ -25,6 +25,17 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Plus, MoreVertical, CheckCircle, XCircle, Trash2, AlertCircle } from 'lucide-react';
 import { CreateTenantDialog } from '@/components/tenants/create-tenant-dialog';
 
+interface AdminTenant {
+  id: string;
+  name: string;
+  slug: string;
+  status: 'active' | 'suspended' | 'deleted' | 'provisioning' | 'failed';
+  schemaName?: string;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export default function TenantsPage() {
   const queryClient = useQueryClient();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -68,7 +79,24 @@ export default function TenantsPage() {
     },
   });
 
-  const tenants = tenantsData?.tenants || [];
+  const tenants: AdminTenant[] = tenantsData?.tenants || [];
+
+  const renderStatus = (status: string) => {
+    switch (status) {
+      case 'active':
+        return <Badge variant="default">active</Badge>;
+      case 'suspended':
+        return <Badge variant="secondary">suspended</Badge>;
+      case 'deleted':
+        return <Badge variant="outline">deleted</Badge>;
+      case 'provisioning':
+        return <Badge variant="secondary">provisioning</Badge>;
+      case 'failed':
+        return <Badge variant="destructive">failed</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
 
   if (isLoading) {
     return (
@@ -145,16 +173,16 @@ export default function TenantsPage() {
                   <TableRow key={tenant.id}>
                     <TableCell className="font-mono text-sm">{tenant.id}</TableCell>
                     <TableCell className="font-medium">{tenant.name}</TableCell>
-                    <TableCell className="font-mono text-sm">{tenant.slug}</TableCell>
+                    <TableCell className="font-mono text-sm" title={tenant.schemaName}>
+                      {tenant.slug}
+                    </TableCell>
                     <TableCell>
-                      <Badge
-                        variant={tenant.status === 'active' ? 'default' : 'secondary'}
-                      >
-                        {tenant.status}
-                      </Badge>
+                      {renderStatus(tenant.status)}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {new Date(tenant.createdAt).toLocaleDateString()}
+                      {tenant.createdAt
+                        ? new Date(tenant.createdAt).toLocaleString()
+                        : '—'}
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
