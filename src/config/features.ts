@@ -6,6 +6,7 @@
  */
 
 import { AuthConfig } from './auth-mode';
+import { devEnabled } from '../env.js';
 
 export interface FeatureFlags {
   /**
@@ -38,8 +39,6 @@ export interface FeatureFlags {
  * Derive feature flags from AuthConfig
  */
 export function getFeatureFlags(config: AuthConfig): FeatureFlags {
-  const devEnabled = process.env.ENABLE_DEV_ENDPOINTS === 'true';
-
   return {
     // Tenant registry only needed in multi mode
     tenantRegistry: config.mode === 'multi',

@@ -6,7 +6,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { adminAuth } from './auth.js';
 import { adminSessionMiddleware, AdminRequest } from './middleware.js';
-import { tenantService, TenantValidationError } from './tenant-service.js';
+import { tenantService, TenantValidationError, type SecuritySettings, type Tenant } from './tenant-service.js';
 import { getRequestOrigin } from '../utils/http.js';
 
 /**
@@ -20,6 +20,26 @@ function toHeaders(headers: any): Headers {
     }
   }
   return webHeaders;
+}
+
+function serializeTenant(tenant: Tenant) {
+  const createdAt = tenant.created_at instanceof Date
+    ? tenant.created_at.toISOString()
+    : tenant.created_at;
+  const updatedAt = tenant.updated_at instanceof Date
+    ? tenant.updated_at.toISOString()
+    : tenant.updated_at;
+
+  return {
+    id: tenant.id,
+    name: tenant.name,
+    slug: tenant.slug,
+    status: tenant.status,
+    schemaName: tenant.schema_name,
+    metadata: tenant.metadata ?? {},
+    createdAt,
+    updatedAt
+  };
 }
 
 /**
@@ -91,7 +111,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   }, async (req: AdminRequest, reply) => {
     try {
       const tenants = await tenantService.listTenants();
-      
+
       // Log audit
       await tenantService.logAuditAction(
         req.adminUser!.id,
@@ -101,8 +121,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         { count: tenants.length },
         req.ip
       );
-      
-      reply.send({ tenants });
+
+      reply.send({ tenants: tenants.map(serializeTenant) });
     } catch (error) {
       console.error('[Admin API] List tenants error:', error);
       reply.code(500).send({ error: 'Failed to list tenants' });
@@ -116,12 +136,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     try {
       const { id } = req.params as { id: string };
       const tenant = await tenantService.getTenant(id);
-      
+
       if (!tenant) {
         return reply.code(404).send({ error: 'Tenant not found' });
       }
-      
-      reply.send({ tenant });
+
+      reply.send({ tenant: serializeTenant(tenant) });
     } catch (error) {
       console.error('[Admin API] Get tenant error:', error);
       reply.code(500).send({ error: 'Failed to get tenant' });
@@ -143,7 +163,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       }
       
       const tenant = await tenantService.createTenant(input);
-      
+
       // Log audit
       await tenantService.logAuditAction(
         req.adminUser!.id,
@@ -153,9 +173,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         { name: tenant.name, slug: tenant.slug },
         req.ip
       );
-      
+
       reply.code(201).send({
-        tenant,
+        tenant: serializeTenant(tenant),
         message: 'Tenant created and provisioned successfully.'
       });
     } catch (error) {
@@ -264,7 +284,19 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   // ==========================
   // System Metrics Routes
   // ==========================
-  
+
+  app.get('/admin/api/overview', {
+    preHandler: adminSessionMiddleware
+  }, async (_req: AdminRequest, reply) => {
+    try {
+      const overview = await tenantService.getAdminOverview();
+      reply.send({ overview });
+    } catch (error) {
+      console.error('[Admin API] Get overview error:', error);
+      reply.code(500).send({ error: 'Failed to load overview' });
+    }
+  });
+
   // Get system-wide metrics
   app.get('/admin/api/metrics', {
     preHandler: adminSessionMiddleware
@@ -278,22 +310,161 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       reply.code(500).send({ error: 'Failed to get system metrics' });
     }
   });
-  
+
+  // ==========================
+  // Cross-tenant User Management
+  // ==========================
+
+  app.get('/admin/api/users/search', {
+    preHandler: adminSessionMiddleware
+  }, async (req: AdminRequest, reply) => {
+    try {
+      const { q = '', tenantId, limit } = req.query as { q?: string; tenantId?: string; limit?: string };
+      const results = await tenantService.searchUsersAcrossTenants({
+        query: q,
+        tenantId,
+        limit: limit ? parseInt(limit, 10) : undefined
+      });
+
+      await tenantService.logAuditAction(
+        req.adminUser!.id,
+        'search_users',
+        'system',
+        tenantId || 'all',
+        { query: q, limit: limit ? parseInt(limit, 10) : undefined },
+        req.ip
+      );
+
+      reply.send({ users: results });
+    } catch (error) {
+      if (error instanceof TenantValidationError) {
+        return reply.code(400).send({ error: error.message });
+      }
+      console.error('[Admin API] Search users error:', error);
+      reply.code(500).send({ error: 'Failed to search users' });
+    }
+  });
+
+  app.post('/admin/api/tenants/:tenantId/users/:userId/revoke-sessions', {
+    preHandler: adminSessionMiddleware
+  }, async (req: AdminRequest, reply) => {
+    try {
+      const { tenantId, userId } = req.params as { tenantId: string; userId: string };
+      const revoked = await tenantService.revokeUserSessions(tenantId, userId);
+
+      await tenantService.logAuditAction(
+        req.adminUser!.id,
+        'revoke_user_sessions',
+        'user',
+        `${tenantId}:${userId}`,
+        { revoked },
+        req.ip
+      );
+
+      reply.send({ revoked });
+    } catch (error) {
+      console.error('[Admin API] Revoke user sessions error:', error);
+      reply.code(500).send({ error: 'Failed to revoke user sessions' });
+    }
+  });
+
+  app.post('/admin/api/tenants/:tenantId/users/:userId/support-session', {
+    preHandler: adminSessionMiddleware
+  }, async (req: AdminRequest, reply) => {
+    try {
+      const { tenantId, userId } = req.params as { tenantId: string; userId: string };
+      const { minutes = 30 } = (req.body as { minutes?: number }) || {};
+
+      const session = await tenantService.createSupportSession(tenantId, userId, minutes);
+
+      await tenantService.logAuditAction(
+        req.adminUser!.id,
+        'create_support_session',
+        'user',
+        `${tenantId}:${userId}`,
+        { minutes },
+        req.ip
+      );
+
+      reply.send({ session });
+    } catch (error) {
+      console.error('[Admin API] Support session error:', error);
+      reply.code(500).send({ error: 'Failed to create support session' });
+    }
+  });
+
+  // ==========================
+  // Security Configuration
+  // ==========================
+
+  app.get('/admin/api/security/settings', {
+    preHandler: adminSessionMiddleware
+  }, async (_req: AdminRequest, reply) => {
+    try {
+      const settings = await tenantService.getSecuritySettings();
+      reply.send({ settings });
+    } catch (error) {
+      console.error('[Admin API] Get security settings error:', error);
+      reply.code(500).send({ error: 'Failed to load security settings' });
+    }
+  });
+
+  app.put('/admin/api/security/settings', {
+    preHandler: adminSessionMiddleware
+  }, async (req: AdminRequest, reply) => {
+    try {
+      const updates = req.body as Partial<SecuritySettings>;
+      const settings = await tenantService.updateSecuritySettings(req.adminUser!.id, updates);
+
+      await tenantService.logAuditAction(
+        req.adminUser!.id,
+        'update_security_settings',
+        'system',
+        'security',
+        updates,
+        req.ip
+      );
+
+      reply.send({ settings });
+    } catch (error) {
+      console.error('[Admin API] Update security settings error:', error);
+      reply.code(500).send({ error: 'Failed to update security settings' });
+    }
+  });
+
   // ==========================
   // Audit Log Routes
   // ==========================
-  
+
   // Get audit logs
   app.get('/admin/api/audit-logs', {
     preHandler: adminSessionMiddleware
   }, async (req: AdminRequest, reply) => {
     try {
-      const { limit = '50', offset = '0' } = req.query as any;
-      
+      const {
+        limit = '50',
+        offset = '0',
+        action,
+        targetType,
+        targetId,
+        adminUserId,
+        from,
+        to,
+        search
+      } = req.query as any;
+
       const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
       const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
 
-      const auditLogs = await tenantService.getAuditLogs(limitNum, offsetNum);
+      const auditLogs = await tenantService.getAuditLogs(limitNum, offsetNum, {
+        action,
+        targetType,
+        targetId,
+        adminUserId,
+        from,
+        to,
+        search
+      });
 
       reply.send(auditLogs);
     } catch (error) {

@@ -292,7 +292,7 @@ const startServer = async () => {
     // Register dev endpoints (if enabled)
     if (features.devEndpoints) {
       console.log("Registering dev endpoints, devEnabled:", devEnabled);
-      registerDevEndpoints(app);
+      registerDevEndpoints(app, authConfig);
     } else {
       console.log("Dev endpoints disabled, registering 404 handler");
       app.all("/dev/*", async (req, reply) => {
