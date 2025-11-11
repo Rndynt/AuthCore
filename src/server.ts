@@ -18,6 +18,7 @@ import { adminAuthMiddleware } from "./admin-auth-middleware.js";
 import { registerAdminRoutes } from "./admin/routes.js";
 import { getRequestOrigin } from "./utils/http.js";
 import requestLogger from "./utils/request-logger.js";
+import { getRequestMetricsSnapshot } from "./utils/request-metrics.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -205,7 +206,11 @@ function registerRoutes() {
       preHandler: adminAuthMiddleware
     }, async (req, reply) => {
       const stats = tenantManager.getStats();
-      reply.send(stats);
+      reply.send({
+        generatedAt: new Date().toISOString(),
+        connections: stats,
+        requests: getRequestMetricsSnapshot()
+      });
     });
 
     // Nested tenancy routes (if enabled)

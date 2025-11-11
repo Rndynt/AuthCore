@@ -2,6 +2,7 @@ import fp from "fastify-plugin";
 import type { FastifyPluginAsync } from "fastify";
 import type { TenantRequest } from "../multi-tenant/middleware.js";
 import { emitLogEvent } from "./log-stream.js";
+import { recordCompletedRequest } from "./request-metrics.js";
 
 export interface RequestLogContext {
   startedAt: number;
@@ -61,6 +62,12 @@ const requestLoggerPlugin: FastifyPluginAsync = async fastify => {
         ip: request.ip,
         userAgent: request.headers["user-agent"] as string | undefined
       }
+    });
+
+    recordCompletedRequest({
+      method: request.method,
+      statusCode: reply.statusCode,
+      durationMs: duration
     });
   });
 };
