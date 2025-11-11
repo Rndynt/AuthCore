@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { auth } from "./auth.js";
-import { devEnabled, env } from "./env.js";
+import { env } from "./env.js";
 import type { AuthConfig } from "./config/auth-mode.js";
 import { getTenantAuth } from "./multi-tenant/auth-factory.js";
 import { tenantManager } from "./multi-tenant/connection-manager.js";
@@ -17,6 +17,10 @@ interface AuthContext {
 }
 
 type DevRequest = FastifyRequest & { devAuthContext?: AuthContext };
+
+interface DevEndpointOptions {
+  isEnabled?: () => boolean;
+}
 
 function detectAuthMode(headers: Record<string, any>): AuthMode {
   if (headers["x-api-key"]) return "apiKey";
@@ -122,28 +126,33 @@ async function requireOrgRole(authInstance: BetterAuthInstance, headers: Headers
 }
 
 // Dev endpoints registration
-export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
-  console.log("Registering dev endpoints, devEnabled:", devEnabled);
-  
-  if (!devEnabled) {
-    console.log("Dev endpoints disabled, registering 404 handler");
-    // Register 404 handler for all /dev/* routes when dev endpoints are disabled
-    app.register((devApp) => {
-      devApp.addHook("preHandler", async (request, reply) => {
-        if (request.url.startsWith("/dev")) {
-          console.log("Dev endpoint accessed but disabled:", request.url);
-          reply.status(404).send({ error: "Not found" });
-        }
-      });
-    });
-    return;
-  }
+export function registerDevEndpoints(
+  app: FastifyInstance,
+  config: AuthConfig,
+  options: DevEndpointOptions = {}
+) {
+  const isEnabled = options.isEnabled ?? (() => true);
 
-  console.log("Dev endpoints enabled, registering routes...");
+  const ensureEnabled = (reply: FastifyReply) => {
+    if (!isEnabled()) {
+      reply.status(404).send({
+        error: "Not Found",
+        message: "Dev endpoints are disabled by the current security settings."
+      });
+      return false;
+    }
+    return true;
+  };
+
+  console.log("Registering dev endpoints with dynamic enablement");
 
   // Register dev routes with /dev prefix
   app.register((devApp) => {
     devApp.addHook("preHandler", async (request, reply) => {
+      if (!ensureEnabled(reply)) {
+        return;
+      }
+
       try {
         // Skip authentication for JWKS endpoint (must be public for JWT validation)
         if (request.url === "/dev/jwks.json") {

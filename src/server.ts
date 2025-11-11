@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { readFile } from "fs/promises";
 import { auth } from "./auth.js";
-import { env, trustedOrigins, devEnabled } from "./env.js";
+import { env, trustedOrigins } from "./env.js";
 import { registerDevEndpoints } from "./dev.js";
 import { getAuthConfig, displayAuthConfig, validateAuthConfig } from "./config/auth-mode.js";
 import { getFeatureFlags, displayFeatureFlags } from "./config/features.js";
@@ -16,6 +16,7 @@ import { getTenantAuth } from "./multi-tenant/auth-factory.js";
 import { tenantMiddleware, type TenantRequest } from "./multi-tenant/middleware.js";
 import { adminAuthMiddleware } from "./admin-auth-middleware.js";
 import { registerAdminRoutes } from "./admin/routes.js";
+import { tenantService, type SecuritySettings } from "./admin/tenant-service.js";
 import { getRequestOrigin } from "./utils/http.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,7 +42,30 @@ app.setErrorHandler((err, _req, reply) => {
 
 // Load configuration
 const authConfig = getAuthConfig();
-const features = getFeatureFlags(authConfig);
+const computeFeatureFlags = (overrides?: { devEndpoints?: boolean }) =>
+  getFeatureFlags(authConfig, overrides);
+
+let features = computeFeatureFlags();
+
+function applySecuritySettings(settings: SecuritySettings | null) {
+  if (settings) {
+    features = computeFeatureFlags({ devEndpoints: settings.enableDevEndpoints });
+  } else {
+    features = computeFeatureFlags();
+  }
+
+  displayFeatureFlags(features);
+}
+
+async function refreshSecuritySettingsFromStore() {
+  try {
+    const settings = await tenantService.getSecuritySettings();
+    applySecuritySettings(settings);
+  } catch (error) {
+    app.log.error({ err: error }, "Failed to load security settings; using environment defaults for dev endpoints");
+    applySecuritySettings(null);
+  }
+}
 
 // Managers (conditionally initialized)
 let singleTenantManager: SingleTenantManager | null = null;
@@ -248,8 +272,8 @@ const startServer = async () => {
   try {
     // Display configuration
     displayAuthConfig(authConfig);
-    displayFeatureFlags(features);
-    
+    await refreshSecuritySettingsFromStore();
+
     // Validate configuration
     validateAuthConfig(authConfig);
 
@@ -287,21 +311,20 @@ const startServer = async () => {
     registerRoutes();
     
     // Register admin routes (always available)
-    await registerAdminRoutes(app);
+    await registerAdminRoutes(app, {
+      onSecuritySettingsUpdated: (settings) => {
+        applySecuritySettings(settings);
+        app.log.info(
+          { devEndpoints: settings.enableDevEndpoints },
+          "Updated dev endpoint configuration from admin settings"
+        );
+      }
+    });
 
-    // Register dev endpoints (if enabled)
-    if (features.devEndpoints) {
-      console.log("Registering dev endpoints, devEnabled:", devEnabled);
-      registerDevEndpoints(app, authConfig);
-    } else {
-      console.log("Dev endpoints disabled, registering 404 handler");
-      app.all("/dev/*", async (req, reply) => {
-        reply.code(404).send({ 
-          error: "Not Found", 
-          message: "Dev endpoints are disabled. Set ENABLE_DEV_ENDPOINTS=true to enable." 
-        });
-      });
-    }
+    // Register dev endpoints with dynamic enablement
+    registerDevEndpoints(app, authConfig, {
+      isEnabled: () => features.devEndpoints
+    });
 
     // Serve Admin UI static files (after all API routes for proper priority)
     const adminUIPath = path.join(__dirname, "..", "admin-ui", "out");

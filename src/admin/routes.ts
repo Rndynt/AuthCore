@@ -45,7 +45,11 @@ function serializeTenant(tenant: Tenant) {
 /**
  * Register all admin routes
  */
-export async function registerAdminRoutes(app: FastifyInstance) {
+interface AdminRoutesOptions {
+  onSecuritySettingsUpdated?: (settings: SecuritySettings) => void;
+}
+
+export async function registerAdminRoutes(app: FastifyInstance, options: AdminRoutesOptions = {}) {
   console.log('📋 Registering admin routes...');
   
   // ==========================
@@ -415,6 +419,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     try {
       const updates = req.body as Partial<SecuritySettings>;
       const settings = await tenantService.updateSecuritySettings(req.adminUser!.id, updates);
+
+      options.onSecuritySettingsUpdated?.(settings);
 
       await tenantService.logAuditAction(
         req.adminUser!.id,

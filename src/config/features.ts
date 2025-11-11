@@ -8,6 +8,13 @@
 import { AuthConfig } from './auth-mode';
 import { devEnabled } from '../env.js';
 
+export interface FeatureFlagOverrides {
+  /**
+   * Override the development endpoint availability
+   */
+  devEndpoints?: boolean;
+}
+
 export interface FeatureFlags {
   /**
    * Enable multi-tenant registry tables (tenants, applications)
@@ -38,7 +45,10 @@ export interface FeatureFlags {
 /**
  * Derive feature flags from AuthConfig
  */
-export function getFeatureFlags(config: AuthConfig): FeatureFlags {
+export function getFeatureFlags(
+  config: AuthConfig,
+  overrides: FeatureFlagOverrides = {}
+): FeatureFlags {
   return {
     // Tenant registry only needed in multi mode
     tenantRegistry: config.mode === 'multi',
@@ -49,8 +59,8 @@ export function getFeatureFlags(config: AuthConfig): FeatureFlags {
     // Tenant middleware only in multi mode
     tenantMiddleware: config.mode === 'multi',
 
-    // Dev endpoints can be enabled in any mode
-    devEndpoints: devEnabled,
+    // Dev endpoints can be enabled in any mode (overridable from admin settings)
+    devEndpoints: overrides.devEndpoints ?? devEnabled,
 
     // Audit log always enabled for security
     auditLog: true
