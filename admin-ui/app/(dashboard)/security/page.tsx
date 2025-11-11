@@ -14,6 +14,9 @@ interface SecuritySettings {
   trustedOrigins: string[];
   enableDevEndpoints: boolean;
   apiKeyRotationDays: number | null;
+  adminIpAllowlist: string[];
+  enforceAdminMfa: boolean;
+  readOnlyMode: boolean;
 }
 
 export default function SecurityPage() {
@@ -29,6 +32,9 @@ export default function SecurityPage() {
     trustedOrigins: '',
     enableDevEndpoints: false,
     apiKeyRotationDays: '' as string | number,
+    adminIpAllowlist: '',
+    enforceAdminMfa: false,
+    readOnlyMode: false,
   });
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +45,9 @@ export default function SecurityPage() {
         trustedOrigins: data.trustedOrigins.join('\n'),
         enableDevEndpoints: data.enableDevEndpoints,
         apiKeyRotationDays: data.apiKeyRotationDays ?? '',
+        adminIpAllowlist: data.adminIpAllowlist.join('\n'),
+        enforceAdminMfa: data.enforceAdminMfa,
+        readOnlyMode: data.readOnlyMode,
       });
     }
   }, [data]);
@@ -71,6 +80,12 @@ export default function SecurityPage() {
       apiKeyRotationDays: form.apiKeyRotationDays === ''
         ? null
         : Number(form.apiKeyRotationDays),
+      adminIpAllowlist: form.adminIpAllowlist
+        .split(/\n|,/)
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+      enforceAdminMfa: form.enforceAdminMfa,
+      readOnlyMode: form.readOnlyMode,
     };
 
     updateMutation.mutate(payload);
@@ -124,6 +139,19 @@ export default function SecurityPage() {
               />
             </div>
 
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Admin IP allowlist</label>
+              <p className="text-xs text-muted-foreground">
+                Optional CIDR or IP entries to restrict admin console access. Leave blank to allow any source.
+              </p>
+              <textarea
+                className="w-full rounded border bg-background p-3 text-sm font-mono"
+                rows={4}
+                value={form.adminIpAllowlist}
+                onChange={(event) => setForm({ ...form, adminIpAllowlist: event.target.value })}
+              />
+            </div>
+
             <div className="flex items-center justify-between border rounded p-4">
               <div>
                 <p className="text-sm font-medium">Enable development endpoints</p>
@@ -139,6 +167,21 @@ export default function SecurityPage() {
               />
             </div>
 
+            <div className="flex items-center justify-between border rounded p-4">
+              <div>
+                <p className="text-sm font-medium">Require MFA for admins</p>
+                <p className="text-xs text-muted-foreground">
+                  Enforces multi-factor authentication when signing into the admin console.
+                </p>
+              </div>
+              <Switch
+                checked={form.enforceAdminMfa}
+                onCheckedChange={(checked) => setForm({ ...form, enforceAdminMfa: checked })}
+                aria-label="Toggle MFA requirement"
+                disabled={updateMutation.isPending}
+              />
+            </div>
+
             <div className="space-y-2">
               <label className="text-sm font-medium">API key rotation (days)</label>
               <p className="text-xs text-muted-foreground">
@@ -149,6 +192,21 @@ export default function SecurityPage() {
                 min={0}
                 value={form.apiKeyRotationDays}
                 onChange={(event) => setForm({ ...form, apiKeyRotationDays: event.target.value })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between border rounded p-4">
+              <div>
+                <p className="text-sm font-medium">Read-only maintenance mode</p>
+                <p className="text-xs text-muted-foreground">
+                  Prevents admins from mutating tenant resources while investigating incidents.
+                </p>
+              </div>
+              <Switch
+                checked={form.readOnlyMode}
+                onCheckedChange={(checked) => setForm({ ...form, readOnlyMode: checked })}
+                aria-label="Toggle read-only mode"
+                disabled={updateMutation.isPending}
               />
             </div>
 

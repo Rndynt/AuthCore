@@ -2,13 +2,15 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 import { apiClient } from '@/lib/api-client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ChevronLeft, ChevronRight, Loader2, Search } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { ChevronLeft, ChevronRight, Loader2, Search, ExternalLink } from 'lucide-react';
 
 interface AuditLog {
   id: number;
@@ -19,6 +21,9 @@ interface AuditLog {
   details: Record<string, any>;
   ip_address: string | null;
   created_at: string;
+  tenant_id?: string | null;
+  tenant_name?: string | null;
+  tenant_status?: string | null;
 }
 
 export default function AuditLogsPage() {
@@ -29,6 +34,7 @@ export default function AuditLogsPage() {
     search: '',
     from: '',
     to: '',
+    tenantStatus: '',
   });
   const [appliedFilters, setAppliedFilters] = useState(formFilters);
   const [page, setPage] = useState(0);
@@ -41,6 +47,7 @@ export default function AuditLogsPage() {
         search: appliedFilters.search || undefined,
         from: appliedFilters.from || undefined,
         to: appliedFilters.to || undefined,
+        tenantStatus: appliedFilters.tenantStatus || undefined,
       };
       const response = await apiClient.getAuditLogs({
         limit: PAGE_SIZE,
@@ -104,6 +111,18 @@ export default function AuditLogsPage() {
               value={formFilters.to}
               onChange={(event) => setFormFilters({ ...formFilters, to: event.target.value })}
             />
+            <select
+              className="h-10 rounded border border-input bg-background px-3 py-2 text-sm"
+              value={formFilters.tenantStatus}
+              onChange={(event) => setFormFilters({ ...formFilters, tenantStatus: event.target.value })}
+            >
+              <option value="">Tenant status (any)</option>
+              <option value="active">Active</option>
+              <option value="suspended">Suspended</option>
+              <option value="provisioning">Provisioning</option>
+              <option value="failed">Failed</option>
+              <option value="deleted">Deleted</option>
+            </select>
             <div className="md:col-span-2 flex justify-end gap-2">
               <Button
                 type="button"
@@ -118,8 +137,8 @@ export default function AuditLogsPage() {
                 type="button"
                 variant="ghost"
                 onClick={() => {
-                  setFormFilters({ action: '', search: '', from: '', to: '' });
-                  setAppliedFilters({ action: '', search: '', from: '', to: '' });
+                  setFormFilters({ action: '', search: '', from: '', to: '', tenantStatus: '' });
+                  setAppliedFilters({ action: '', search: '', from: '', to: '', tenantStatus: '' });
                   handleResetPage();
                 }}
                 disabled={logsQuery.isLoading}
@@ -152,6 +171,7 @@ export default function AuditLogsPage() {
                   <TableHead>Admin</TableHead>
                   <TableHead>Action</TableHead>
                   <TableHead>Target</TableHead>
+                  <TableHead>Context</TableHead>
                   <TableHead>Details</TableHead>
                 </TableRow>
               </TableHeader>
@@ -176,7 +196,49 @@ export default function AuditLogsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm">{log.target_id}</span>
+                      <div className="flex flex-col text-sm">
+                        <span className="font-medium break-all">{log.target_id}</span>
+                        <span className="text-xs text-muted-foreground">{log.target_type}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {log.tenant_id ? (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{log.tenant_name || log.tenant_id}</span>
+                            {log.tenant_status && (
+                              <Badge variant={log.tenant_status === 'active' ? 'secondary' : log.tenant_status === 'failed' ? 'destructive' : 'outline'} className="capitalize">
+                                {log.tenant_status}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Link href={`/tenants?tenantId=${encodeURIComponent(log.tenant_id)}`}>
+                              <Button variant="outline" size="sm" className="h-7 px-2 text-xs">
+                                <ExternalLink className="w-3 h-3 mr-1" /> View tenant
+                              </Button>
+                            </Link>
+                            {log.target_type === 'user' && (
+                              (() => {
+                                const [tenantScope, userId] = log.target_id.split(':');
+                                const tenantForUser = tenantScope || log.tenant_id || '';
+                                const query = new URLSearchParams();
+                                if (tenantForUser) query.set('tenantId', tenantForUser);
+                                if (userId) query.set('q', userId);
+                                return (
+                                  <Link href={`/users${query.toString() ? `?${query.toString()}` : ''}`}>
+                                    <Button variant="outline" size="sm" className="h-7 px-2 text-xs">
+                                      <ExternalLink className="w-3 h-3 mr-1" /> View user
+                                    </Button>
+                                  </Link>
+                                );
+                              })()
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No tenant context</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <pre className="max-h-24 overflow-auto rounded bg-muted p-2 text-xs">

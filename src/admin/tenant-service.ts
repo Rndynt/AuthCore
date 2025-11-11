@@ -74,7 +74,24 @@ export interface SecuritySettings {
   trustedOrigins: string[];
   enableDevEndpoints: boolean;
   apiKeyRotationDays: number | null;
+  adminIpAllowlist: string[];
+  enforceAdminMfa: boolean;
+  readOnlyMode: boolean;
 }
+
+export interface SupportSessionSummary {
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  sessionId: string;
+  token: string;
+  userId: string;
+  userEmail: string;
+  createdAt: Date;
+  expiresAt: Date;
+}
+
+const SUPPORT_SESSION_MARKER = 'admin_support';
 
 export interface AuditLogEntry {
   id: number;
@@ -85,6 +102,9 @@ export interface AuditLogEntry {
   details: Record<string, any>;
   ip_address: string | null;
   created_at: Date;
+  tenant_id?: string | null;
+  tenant_name?: string | null;
+  tenant_status?: string | null;
 }
 
 function normalizeTenantIdentifier(value: string, field: 'id' | 'slug'): string {
@@ -499,7 +519,7 @@ export class TenantService {
           token,
           userId,
           expiresAt,
-          impersonatedBy: 'admin_support'
+          impersonatedBy: SUPPORT_SESSION_MARKER
         }
       });
 
@@ -510,6 +530,77 @@ export class TenantService {
     } catch (error) {
       console.error(`[TenantService] Failed to create support session for ${tenantId}/${userId}:`, error);
       throw new Error('Failed to create support session');
+    }
+  }
+
+  async listActiveSupportSessions(): Promise<SupportSessionSummary[]> {
+    const tenants = tenantManager.getAllTenants().filter(t => t.status === 'active');
+    const summaries: SupportSessionSummary[] = [];
+    const now = new Date();
+
+    for (const tenant of tenants) {
+      try {
+        const client = tenantManager.getClient(tenant.id);
+        const sessions = await client.session.findMany({
+          where: {
+            impersonatedBy: SUPPORT_SESSION_MARKER,
+            expiresAt: { gt: now }
+          },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true
+              }
+            }
+          }
+        });
+
+        for (const session of sessions) {
+          summaries.push({
+            tenantId: tenant.id,
+            tenantName: tenant.name,
+            tenantSlug: tenant.slug,
+            sessionId: session.id,
+            token: session.token,
+            userId: session.userId,
+            userEmail: session.user?.email ?? 'unknown',
+            createdAt: session.createdAt,
+            expiresAt: session.expiresAt
+          });
+        }
+      } catch (error) {
+        console.error(`[TenantService] Failed to list support sessions for ${tenant.id}:`, error);
+      }
+    }
+
+    return summaries.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async revokeSupportSession(tenantId: string, sessionId: string): Promise<boolean> {
+    try {
+      const client = tenantManager.getClient(tenantId);
+      const result = await client.session.deleteMany({
+        where: {
+          id: sessionId,
+          impersonatedBy: SUPPORT_SESSION_MARKER
+        }
+      });
+      return result.count > 0;
+    } catch (error) {
+      console.error(`[TenantService] Failed to revoke support session ${sessionId} for ${tenantId}:`, error);
+      throw new Error('Failed to revoke support session');
+    }
+  }
+
+  async pruneIdleConnections(force = false): Promise<{ pruned: number }> {
+    try {
+      const pruned = await tenantManager.pruneIdleConnectionsNow({ force });
+      return { pruned };
+    } catch (error) {
+      console.error('[TenantService] Failed to prune idle connections:', error);
+      throw new Error('Failed to prune idle connections');
     }
   }
 
@@ -564,7 +655,10 @@ export class TenantService {
     return {
       trustedOrigins,
       enableDevEndpoints: devEnabled,
-      apiKeyRotationDays: null
+      apiKeyRotationDays: null,
+      adminIpAllowlist: [],
+      enforceAdminMfa: false,
+      readOnlyMode: false
     };
   }
 
@@ -582,6 +676,10 @@ export class TenantService {
     const stored = result.rows[0]?.settings || {};
     const defaults = this.getDefaultSecuritySettings();
 
+    const normalizeStringArray = (value: unknown, fallback: string[] = []) => Array.isArray(value)
+      ? Array.from(new Set(value.map(item => String(item).trim()).filter(Boolean)))
+      : fallback;
+
     const merged: SecuritySettings = {
       trustedOrigins: Array.isArray(stored.trustedOrigins)
         ? Array.from(new Set(stored.trustedOrigins.map((origin: string) => String(origin).trim()).filter(Boolean)))
@@ -591,7 +689,14 @@ export class TenantService {
         : defaults.enableDevEndpoints,
       apiKeyRotationDays: typeof stored.apiKeyRotationDays === 'number'
         ? stored.apiKeyRotationDays
-        : defaults.apiKeyRotationDays
+        : defaults.apiKeyRotationDays,
+      adminIpAllowlist: normalizeStringArray(stored.adminIpAllowlist, defaults.adminIpAllowlist),
+      enforceAdminMfa: typeof stored.enforceAdminMfa === 'boolean'
+        ? stored.enforceAdminMfa
+        : defaults.enforceAdminMfa,
+      readOnlyMode: typeof stored.readOnlyMode === 'boolean'
+        ? stored.readOnlyMode
+        : defaults.readOnlyMode
     };
 
     return merged;
@@ -619,12 +724,23 @@ export class TenantService {
         ? Math.max(0, Math.floor(updates.apiKeyRotationDays))
         : current.apiKeyRotationDays;
 
+    const adminIpAllowlist = updates.adminIpAllowlist
+      ? Array.from(new Set(updates.adminIpAllowlist.map(ip => ip.trim()).filter(Boolean)))
+      : current.adminIpAllowlist;
+
     const payload: SecuritySettings = {
       trustedOrigins: trusted.length ? trusted : current.trustedOrigins,
       enableDevEndpoints: typeof updates.enableDevEndpoints === 'boolean'
         ? updates.enableDevEndpoints
         : current.enableDevEndpoints,
-      apiKeyRotationDays: rotation
+      apiKeyRotationDays: rotation,
+      adminIpAllowlist,
+      enforceAdminMfa: typeof updates.enforceAdminMfa === 'boolean'
+        ? updates.enforceAdminMfa
+        : current.enforceAdminMfa,
+      readOnlyMode: typeof updates.readOnlyMode === 'boolean'
+        ? updates.readOnlyMode
+        : current.readOnlyMode
     };
 
     await publicPool.query(`
@@ -668,37 +784,47 @@ export class TenantService {
       from?: string;
       to?: string;
       search?: string;
+      tenantStatus?: string;
     }
   ): Promise<{ logs: AuditLogEntry[]; total: number }> {
     try {
+      const tenantIdExpr = `(
+        CASE
+          WHEN a.target_type = 'tenant' THEN a.target_id
+          WHEN a.target_type = 'user' THEN split_part(a.target_id, ':', 1)
+          WHEN a.details ? 'tenantId' THEN a.details->>'tenantId'
+          ELSE NULL
+        END
+      )`;
+
       const conditions: string[] = [];
       const values: any[] = [];
 
       if (filters?.action) {
         values.push(filters.action);
-        conditions.push(`action = $${values.length}`);
+        conditions.push(`a.action = $${values.length}`);
       }
 
       if (filters?.targetType) {
         values.push(filters.targetType);
-        conditions.push(`target_type = $${values.length}`);
+        conditions.push(`a.target_type = $${values.length}`);
       }
 
       if (filters?.targetId) {
         values.push(filters.targetId);
-        conditions.push(`target_id = $${values.length}`);
+        conditions.push(`a.target_id = $${values.length}`);
       }
 
       if (filters?.adminUserId) {
         values.push(filters.adminUserId);
-        conditions.push(`admin_user_id = $${values.length}`);
+        conditions.push(`a.admin_user_id = $${values.length}`);
       }
 
       if (filters?.from) {
         const fromDate = new Date(filters.from);
         if (!Number.isNaN(fromDate.getTime())) {
           values.push(fromDate);
-          conditions.push(`created_at >= $${values.length}`);
+          conditions.push(`a.created_at >= $${values.length}`);
         }
       }
 
@@ -706,32 +832,52 @@ export class TenantService {
         const toDate = new Date(filters.to);
         if (!Number.isNaN(toDate.getTime())) {
           values.push(toDate);
-          conditions.push(`created_at <= $${values.length}`);
+          conditions.push(`a.created_at <= $${values.length}`);
         }
       }
 
       if (filters?.search) {
-        values.push(`%${filters.search.trim().toLowerCase()}%`);
+        const normalized = `%${filters.search.trim().toLowerCase()}%`;
+        values.push(normalized);
         const placeholder = `$${values.length}`;
-        conditions.push(`(LOWER(action) LIKE ${placeholder} OR LOWER(target_id) LIKE ${placeholder})`);
+        conditions.push(`(LOWER(a.action) LIKE ${placeholder} OR LOWER(a.target_id) LIKE ${placeholder} OR LOWER(CAST(a.details AS TEXT)) LIKE ${placeholder})`);
+      }
+
+      if (filters?.tenantStatus) {
+        values.push(filters.tenantStatus);
+        conditions.push(`EXISTS (SELECT 1 FROM public.tenants t WHERE t.id = ${tenantIdExpr} AND t.status = $${values.length})`);
       }
 
       const whereClause = conditions.length > 0
         ? `WHERE ${conditions.join(' AND ')}`
         : '';
 
-      const logsResult = await publicPool.query<AuditLogEntry>(`
-        SELECT id, admin_user_id, action, target_type, target_id, details, ip_address, created_at
-        FROM authcore_system.audit_actions
-        ${whereClause}
-        ORDER BY created_at DESC
-        LIMIT $${values.length + 1} OFFSET $${values.length + 2}
-      `, [...values, limit, offset]);
-
       const countResult = await publicPool.query<{ total: string }>(`
-        SELECT COUNT(*) as total FROM authcore_system.audit_actions
+        SELECT COUNT(*) as total
+        FROM authcore_system.audit_actions a
         ${whereClause}
       `, values);
+
+      const dataValues = [...values, limit, offset];
+      const logsResult = await publicPool.query<AuditLogEntry>(`
+        SELECT
+          a.id,
+          a.admin_user_id,
+          a.action,
+          a.target_type,
+          a.target_id,
+          a.details,
+          a.ip_address,
+          a.created_at,
+          ${tenantIdExpr} AS tenant_id,
+          tenants.name AS tenant_name,
+          tenants.status AS tenant_status
+        FROM authcore_system.audit_actions a
+        LEFT JOIN public.tenants tenants ON tenants.id = ${tenantIdExpr}
+        ${whereClause}
+        ORDER BY a.created_at DESC
+        LIMIT $${values.length + 1} OFFSET $${values.length + 2}
+      `, dataValues);
 
       const logs = logsResult.rows.map(log => {
         let details: Record<string, any> = {};
@@ -749,7 +895,7 @@ export class TenantService {
 
         return {
           ...log,
-          details,
+          details
         };
       });
 

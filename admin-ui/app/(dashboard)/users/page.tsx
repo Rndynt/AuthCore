@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, RefreshCcw, UserCheck2, Clipboard, ClipboardCheck, ShieldCheck } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 interface UserResult {
   tenantId: string;
@@ -29,6 +30,8 @@ interface UserResult {
 }
 
 export default function UsersPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [filters, setFilters] = useState({ q: '', tenantId: '' });
   const [submitted, setSubmitted] = useState(filters);
   const [message, setMessage] = useState<string | null>(null);
@@ -102,6 +105,18 @@ export default function UsersPage() {
 
   const users = useMemo(() => searchQuery.data ?? [], [searchQuery.data]);
 
+  useEffect(() => {
+    const qParam = searchParams.get('q') ?? '';
+    const tenantParam = searchParams.get('tenantId') ?? '';
+    const nextFilters = { q: qParam, tenantId: tenantParam };
+    setFilters(nextFilters);
+    setSubmitted(nextFilters);
+    setMessage(null);
+    setError(null);
+    setSupportSession(null);
+    setCopyStatus('idle');
+  }, [searchParams]);
+
   const handleSearch = (event: React.FormEvent) => {
     event.preventDefault();
     setSubmitted(filters);
@@ -109,6 +124,12 @@ export default function UsersPage() {
     setError(null);
     setSupportSession(null);
     setCopyStatus('idle');
+
+    const params = new URLSearchParams();
+    if (filters.q) params.set('q', filters.q);
+    if (filters.tenantId) params.set('tenantId', filters.tenantId);
+    const query = params.toString();
+    router.replace(`/users${query ? `?${query}` : ''}`);
   };
 
   const handleCopyToken = async () => {

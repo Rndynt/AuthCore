@@ -13,7 +13,8 @@ import {
   Menu,
   Shield,
   UserSearch,
-  ShieldCheck
+  ShieldCheck,
+  LifeBuoy
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -63,6 +64,7 @@ export default function DashboardLayout({
     { href: '/', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/tenants', label: 'Tenants', icon: Users },
     { href: '/users', label: 'Users', icon: UserSearch },
+    { href: '/support-sessions', label: 'Support sessions', icon: LifeBuoy },
     { href: '/security', label: 'Security', icon: ShieldCheck },
     { href: '/audit', label: 'Audit Logs', icon: FileText },
   ];
