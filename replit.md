@@ -43,9 +43,26 @@ NESTED_TENANCY_ENABLED=true
 - Organization-based isolation within tenant schemas
 - Ideal for: SaaS platforms, complex multi-tenant apps
 
-## Recent Updates (Oct 30, 2025)
+## Recent Updates (Nov 11, 2025)
 
-### 🚀 Latest: Complete Database & Admin UI Setup (Today)
+### 🔧 Latest: CORS & Auth Mode Configuration Fixed (Today)
+
+**Critical Fixes Applied**:
+- ✅ Fixed AUTH_MODE default to "multi" (was incorrectly set to "single")
+- ✅ Fixed CORS configuration to support Replit subdomain variants
+- ✅ Added automatic tilde subdomain pattern detection (`~00-xxx.spock.replit.dev`)
+- ✅ Verified suspend/activate tenant functionality works correctly
+- ✅ Verified cross-tenant user listing displays data from all schemas
+- ✅ Tested admin login from both main and tilde subdomains - working perfectly
+
+**CORS Configuration**:
+The system now automatically detects and trusts both Replit domain patterns:
+- Main: `https://685e8f81-1086-426a-bd4b-a3ccc7f50067-00-m92ps5cyz1gx.spock.replit.dev`
+- Tilde: `https://~00-m92ps5cyz1gx.spock.replit.dev`
+
+This resolves `INVALID_ORIGIN` errors when accessing from mobile or different subdomains.
+
+### 🚀 Previous: Complete Database & Admin UI Setup (Oct 30, 2025)
 
 **Database Setup Complete**:
 - ✅ PostgreSQL database provisioned via Replit
