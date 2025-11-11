@@ -17,7 +17,11 @@ AuthCore ships with a tenant registry stored in `public.tenants` and a connectio
 1. **Create tenant entries** using the Admin API (or directly through `TenantService#createTenant`) with canonical IDs, slugs, and schema names. The service validates identifiers, inserts the registry record, provisions schema clones, and registers the tenant in memory.【F:src/admin/tenant-service.ts†L1-L111】
 2. **Handle lifecycle events** (activate, suspend, delete) via the tenant service. Each action updates the registry and refreshes the in-memory map so API traffic reflects the new status immediately.【F:src/admin/tenant-service.ts†L112-L220】
 3. **Verify availability** by calling `/me` or `/api/auth/*` with the `X-Tenant-Id` header, a tenant subdomain, or the `/tenant/{id}` prefix. All three resolution paths are accepted by the middleware.【F:MULTI_TENANT_USAGE.md†L17-L70】
-4. **Monitor usage** from `/admin/stats` when an admin API key is configured; the response includes per-tenant connection telemetry supplied by the connection manager.【F:src/multi-tenant/connection-manager.ts†L1-L113】【F:src/admin/tenant-service.ts†L221-L278】
+4. **Monitor usage** from `/admin/stats` when an admin API key is configured. The endpoint now returns:
+   - `generatedAt` → ISO timestamp showing when the snapshot was produced.
+   - `connections` → the existing connection manager telemetry per tenant, including pool stats and idle TTL metadata.
+   - `requests` → aggregate counters (`totalResponses`, per-method, per-status) and a latency histogram with millisecond buckets (`50`, `100`, `250`, `500`, `1000`, `2500`, `5000`, `+Inf`).
+   Use the histogram to spot latency regressions and the status buckets to surface systemic failures quickly.【F:src/server.ts†L197-L222】【F:src/utils/request-metrics.ts†L1-L120】【F:src/multi-tenant/connection-manager.ts†L300-L343】
 
 ### Recommended tenant identifiers
 
