@@ -1,7 +1,7 @@
 {
   "version": 4,
   "routes": {
-    "/audit": {
+    "/login": {
       "experimentalBypassFor": [
         {
           "type": "header",
@@ -14,32 +14,8 @@
         }
       ],
       "initialRevalidateSeconds": false,
-      "srcRoute": "/audit",
-      "dataRoute": "/audit.rsc",
-      "allowHeader": [
-        "host",
-        "x-matched-path",
-        "x-prerender-revalidate",
-        "x-prerender-revalidate-if-generated",
-        "x-next-revalidated-tags",
-        "x-next-revalidate-tag-token"
-      ]
-    },
-    "/tenants": {
-      "experimentalBypassFor": [
-        {
-          "type": "header",
-          "key": "next-action"
-        },
-        {
-          "type": "header",
-          "key": "content-type",
-          "value": "multipart/form-data;.*"
-        }
-      ],
-      "initialRevalidateSeconds": false,
-      "srcRoute": "/tenants",
-      "dataRoute": "/tenants.rsc",
+      "srcRoute": "/login",
+      "dataRoute": "/login.rsc",
       "allowHeader": [
         "host",
         "x-matched-path",
@@ -73,7 +49,7 @@
         "x-next-revalidate-tag-token"
       ]
     },
-    "/login": {
+    "/tenants": {
       "experimentalBypassFor": [
         {
           "type": "header",
@@ -86,8 +62,32 @@
         }
       ],
       "initialRevalidateSeconds": false,
-      "srcRoute": "/login",
-      "dataRoute": "/login.rsc",
+      "srcRoute": "/tenants",
+      "dataRoute": "/tenants.rsc",
+      "allowHeader": [
+        "host",
+        "x-matched-path",
+        "x-prerender-revalidate",
+        "x-prerender-revalidate-if-generated",
+        "x-next-revalidated-tags",
+        "x-next-revalidate-tag-token"
+      ]
+    },
+    "/audit": {
+      "experimentalBypassFor": [
+        {
+          "type": "header",
+          "key": "next-action"
+        },
+        {
+          "type": "header",
+          "key": "content-type",
+          "value": "multipart/form-data;.*"
+        }
+      ],
+      "initialRevalidateSeconds": false,
+      "srcRoute": "/audit",
+      "dataRoute": "/audit.rsc",
       "allowHeader": [
         "host",
         "x-matched-path",
@@ -126,8 +126,8 @@
   "dynamicRoutes": {},
   "notFoundRoutes": [],
   "preview": {
-    "previewModeId": "6f66b6174c8e6d6ddb69a7d53e1c525b",
-    "previewModeSigningKey": "63e25c58269a16cc6ad870b83f8de608145976812d537ffb4322ead4ecaaaacc",
-    "previewModeEncryptionKey": "d099b55b207c3bdb07a73be5b3bee434482e4eb04380f7fcc8df000dafcfc875"
+    "previewModeId": "fdeba3bab9fdf8093d9449aa0673e59d",
+    "previewModeSigningKey": "5623f0ebdf9cd7620d20f2576ed6d26bd0ea7935f79f917d3e6df5b887455a6a",
+    "previewModeEncryptionKey": "ddfa34312f6f34b526a3843fa367200b93bcb4b005a97f1b16d6cc477719acbe"
   }
 }
