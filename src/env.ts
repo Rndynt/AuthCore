@@ -29,7 +29,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   ENABLE_DEV_ENDPOINTS: z.string().default("false"),
   ADMIN_API_KEY: z.string().optional(),
-  AUTH_MODE: z.enum(["single", "multi"]).default("single"),
+  AUTH_MODE: z.enum(["single", "multi"]).default("multi"),
   TENANT_ID: z.string().default("default-tenant"),
   TENANT_SCHEMA: z.string().default("public"),
   NESTED_TENANCY_ENABLED: z.string().default("false"),
