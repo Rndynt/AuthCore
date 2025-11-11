@@ -222,7 +222,7 @@ export default function DashboardPage() {
             <div className="space-y-2">
               <p className="text-xs font-medium text-muted-foreground">Active Connections</p>
               <div className="max-h-48 overflow-y-auto space-y-2">
-                {(connections?.connectionDetails ?? []).map(detail => (
+                {(connections?.connectionDetails ?? []).map((detail: any) => (
                   <div key={detail.tenantId} className="rounded border p-3 text-sm">
                     <div className="flex items-center justify-between">
                       <span className="font-medium">{detail.tenantId}</span>

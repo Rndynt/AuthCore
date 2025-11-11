@@ -135,7 +135,7 @@ export default function SecurityPage() {
                 checked={form.enableDevEndpoints}
                 onCheckedChange={(checked) => setForm({ ...form, enableDevEndpoints: checked })}
                 aria-label="Toggle development endpoints"
-                disabled={updateMutation.isLoading}
+                disabled={updateMutation.isPending}
               />
             </div>
 
@@ -153,8 +153,8 @@ export default function SecurityPage() {
             </div>
 
             <div className="flex justify-end gap-2">
-              <Button type="submit" disabled={updateMutation.isLoading}>
-                {updateMutation.isLoading ? (
+              <Button type="submit" disabled={updateMutation.isPending}>
+                {updateMutation.isPending ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   'Save changes'

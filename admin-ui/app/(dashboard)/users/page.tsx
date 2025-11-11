@@ -208,8 +208,8 @@ export default function UsersPage() {
               value={filters.tenantId}
               onChange={(event) => setFilters({ ...filters, tenantId: event.target.value })}
             />
-            <Button type="submit" disabled={searchQuery.isLoading}>
-              {searchQuery.isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
+            <Button type="submit" disabled={searchQuery.isPending}>
+              {searchQuery.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
             </Button>
           </form>
         </CardContent>
@@ -239,7 +239,7 @@ export default function UsersPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {searchQuery.isLoading ? (
+          {searchQuery.isPending ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin" />
               Loading users...
@@ -300,9 +300,9 @@ export default function UsersPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => revokeMutation.mutate({ tenantId: row.tenantId, userId: row.user.id })}
-                          disabled={revokeMutation.isLoading}
+                          disabled={revokeMutation.isPending}
                         >
-                          {revokeMutation.isLoading ? (
+                          {revokeMutation.isPending ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
                             'Revoke Sessions'
@@ -317,9 +317,9 @@ export default function UsersPage() {
                             tenantName: row.tenantName,
                             userEmail: row.user.email,
                           })}
-                          disabled={supportSessionMutation.isLoading}
+                          disabled={supportSessionMutation.isPending}
                         >
-                          {supportSessionMutation.isLoading ? (
+                          {supportSessionMutation.isPending ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
                             <span className="flex items-center gap-1">
