@@ -1,6 +1,7 @@
 import type { Handler, HandlerEvent } from "@netlify/functions";
 import { auth } from "../../src/auth.js";
 import { adminAuth } from "../../src/admin/auth.js";
+import { handleAdminApiRequest } from "../../src/admin/api-handler.js";
 import { trustedOrigins } from "../../src/env.js";
 
 const normalizeOrigin = (origin?: string) => {
@@ -48,6 +49,12 @@ function getRequestUrl(event: HandlerEvent) {
     url.search = originalQuery.startsWith("?") ? originalQuery : `?${originalQuery}`;
   }
 
+  const functionPrefix = "/.netlify/functions/auth";
+  if (url.pathname.startsWith(functionPrefix)) {
+    const trimmed = url.pathname.slice(functionPrefix.length);
+    url.pathname = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  }
+
   return url;
 }
 
@@ -57,6 +64,40 @@ const pickAuthInstance = (url: URL) => {
     return adminAuth;
   }
   return auth;
+};
+
+const getClientIp = (event: HandlerEvent) => {
+  const forwarded = event.headers["x-forwarded-for"] ?? event.headers["client-ip"];
+  if (forwarded) {
+    return forwarded.split(",")[0]?.trim();
+  }
+  return event.headers["x-nf-client-connection-ip"];
+};
+
+const responseToHandlerResult = async (res: Response, origin?: string) => {
+  const singleHeaders: Record<string, string> = {
+    "Access-Control-Allow-Origin": allowOrigin(origin),
+    "Access-Control-Allow-Credentials": "true"
+  };
+
+  const setCookies: string[] = [];
+
+  res.headers.forEach((val, key) => {
+    if (key.toLowerCase() === "set-cookie") {
+      setCookies.push(val);
+    } else {
+      singleHeaders[key] = val;
+    }
+  });
+
+  const text = await res.text().catch(() => "");
+
+  return {
+    statusCode: res.status,
+    headers: singleHeaders,
+    multiValueHeaders: setCookies.length ? { "Set-Cookie": setCookies } : undefined,
+    body: text
+  };
 };
 
 export const handler: Handler = async (event) => {
@@ -76,13 +117,32 @@ export const handler: Handler = async (event) => {
   }
 
   const url = getRequestUrl(event);
-  const authInstance = pickAuthInstance(url);
   const headers = new Headers();
-  for (const [k, v] of Object.entries(event.headers)) if (v) headers.set(k, String(v));
-
+  for (const [k, v] of Object.entries(event.headers)) {
+    if (v) headers.set(k, String(v));
+  }
   const body = event.body
     ? (event.isBase64Encoded ? Buffer.from(event.body, "base64") : event.body)
     : undefined;
+
+  if (url.pathname.startsWith("/admin/api")) {
+    const adminResponse = await handleAdminApiRequest(new Request(url.toString(), {
+      method: event.httpMethod,
+      headers,
+      body
+    }), {
+      ip: getClientIp(event)
+    });
+
+    if (adminResponse) {
+      return responseToHandlerResult(adminResponse, event.headers.origin);
+    }
+  }
+
+  const authInstance = pickAuthInstance(url);
+  if (authInstance === adminAuth && url.pathname.startsWith("/admin/auth")) {
+    url.pathname = url.pathname.replace("/admin/auth", "/api/auth");
+  }
 
   const res = await authInstance.handler(new Request(url.toString(), {
     method: event.httpMethod,
@@ -90,25 +150,6 @@ export const handler: Handler = async (event) => {
     body
   }));
 
-  const singleHeaders: Record<string, string> = {
-    "Access-Control-Allow-Origin": allowOrigin(event.headers.origin),
-    "Access-Control-Allow-Credentials": "true"
-  };
-  const setCookies: string[] = [];
-
-  res.headers.forEach((val, key) => {
-    if (key.toLowerCase() === "set-cookie") {
-      setCookies.push(val);
-    } else {
-      singleHeaders[key] = val;
-    }
-  });
-
-  const text = await res.text().catch(() => "");
-  return {
-    statusCode: res.status,
-    headers: singleHeaders,
-    multiValueHeaders: setCookies.length ? { "Set-Cookie": setCookies } : undefined,
-    body: text
-  };
+  return responseToHandlerResult(res, event.headers.origin);
 };
+
