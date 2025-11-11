@@ -59,6 +59,33 @@ const pickAuthInstance = (url: URL) => {
   return auth;
 };
 
+/**
+ * Netlify rewrites (status = 200) strip the original pathname when a request is
+ * proxied to a function. The original value is forwarded via `x-nf-original-*`
+ * headers, so we need to stitch it back together before handing the request to
+ * Better Auth. Without this, the handler only sees `/.netlify/functions/auth`
+ * and fails to route `/admin/auth/*` or `/api/auth/*` requests.
+ */
+function getRequestUrl(event: HandlerEvent) {
+  const url = new URL(event.rawUrl);
+
+  const originalPath =
+    event.headers["x-nf-original-path"] ??
+    event.headers["x-nf-original-pathname"] ??
+    event.headers["x-original-path"];
+
+  if (originalPath) {
+    url.pathname = originalPath;
+  }
+
+  const originalQuery = event.headers["x-nf-original-query"];
+  if (originalQuery && originalQuery.length > 0) {
+    url.search = originalQuery.startsWith("?") ? originalQuery : `?${originalQuery}`;
+  }
+
+  return url;
+}
+
 export const handler: Handler = async (event) => {
   // CORS preflight
   if (event.httpMethod === "OPTIONS") {
