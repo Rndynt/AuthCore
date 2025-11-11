@@ -8,6 +8,7 @@ import { adminAuth } from './auth.js';
 import { adminSessionMiddleware, AdminRequest } from './middleware.js';
 import { tenantService, TenantValidationError, type SecuritySettings, type Tenant } from './tenant-service.js';
 import { getRequestOrigin } from '../utils/http.js';
+import { addLogListener, removeLogListener, type LogEvent } from '../utils/log-stream.js';
 
 /**
  * Convert Fastify headers to Web Headers
@@ -90,7 +91,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   // ==========================
   // Protected Admin API Routes
   // ==========================
-  
+
   // Get current admin user
   app.get('/admin/api/me', {
     preHandler: adminSessionMiddleware
@@ -99,6 +100,49 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       user: req.adminUser,
       session: req.adminSession
     });
+  });
+
+  // Live log stream via Server-Sent Events
+  app.get('/admin/log-stream', {
+    preHandler: adminSessionMiddleware
+  }, async (req, reply) => {
+    reply.hijack();
+
+    reply.raw.setHeader('Content-Type', 'text/event-stream');
+    reply.raw.setHeader('Cache-Control', 'no-cache');
+    reply.raw.setHeader('Connection', 'keep-alive');
+
+    if (typeof (reply.raw as any).flushHeaders === 'function') {
+      (reply.raw as any).flushHeaders();
+    }
+
+    const writeEvent = (event: string, data: LogEvent | Record<string, unknown>) => {
+      reply.raw.write(`event: ${event}\n`);
+      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const listener = (event: LogEvent) => {
+      writeEvent('log', event);
+    };
+
+    addLogListener(listener);
+
+    writeEvent('ready', { ok: true });
+
+    const keepAlive = setInterval(() => {
+      reply.raw.write(':keep-alive\n\n');
+    }, 15000);
+
+    let cleanedUp = false;
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      clearInterval(keepAlive);
+      removeLogListener(listener);
+    };
+
+    req.raw.on('close', cleanup);
+    req.raw.on('error', cleanup);
   });
   
   // ==========================
