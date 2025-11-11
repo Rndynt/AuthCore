@@ -1,10 +1,62 @@
-import type { Handler } from "@netlify/functions";
+import type { Handler, HandlerEvent } from "@netlify/functions";
 import { auth } from "../../src/auth.js";
+import { adminAuth } from "../../src/admin/auth.js";
 import { trustedOrigins } from "../../src/env.js";
 
+const normalizeOrigin = (origin?: string) => {
+  if (!origin) return undefined;
+  try {
+    const parsed = new URL(origin);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return origin;
+  }
+};
+
 const allowOrigin = (origin?: string) => {
-  if (!origin) return trustedOrigins[0] ?? "*";
-  return trustedOrigins.includes(origin) ? origin : trustedOrigins[0] ?? "*";
+  const normalized = normalizeOrigin(origin);
+  if (normalized && trustedOrigins.includes(normalized)) {
+    return normalized;
+  }
+  if (origin && trustedOrigins.includes(origin)) {
+    return origin;
+  }
+  return trustedOrigins[0] ?? normalized ?? "*";
+};
+
+/**
+ * Netlify rewrites (status = 200) strip the original pathname when a request is
+ * proxied to a function. The original value is forwarded via `x-nf-original-*`
+ * headers, so we need to stitch it back together before handing the request to
+ * Better Auth. Without this, the handler only sees `/.netlify/functions/auth`
+ * and fails to route `/admin/auth/*` or `/api/auth/*` requests.
+ */
+function getRequestUrl(event: HandlerEvent) {
+  const url = new URL(event.rawUrl);
+
+  const originalPath =
+    event.headers["x-nf-original-path"] ??
+    event.headers["x-nf-original-pathname"] ??
+    event.headers["x-original-path"];
+
+  if (originalPath) {
+    url.pathname = originalPath;
+  }
+
+  const originalQuery = event.headers["x-nf-original-query"];
+  if (originalQuery && originalQuery.length > 0) {
+    url.search = originalQuery.startsWith("?") ? originalQuery : `?${originalQuery}`;
+  }
+
+  return url;
+}
+
+const pickAuthInstance = (url: URL) => {
+  const pathname = url.pathname;
+  if (pathname.startsWith("/admin/auth")) {
+    return adminAuth;
+  }
+  return auth;
 };
 
 export const handler: Handler = async (event) => {
@@ -16,13 +68,15 @@ export const handler: Handler = async (event) => {
         "Access-Control-Allow-Origin": allowOrigin(event.headers.origin),
         "Access-Control-Allow-Credentials": "true",
         "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, x-api-key"
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization, X-Requested-With, x-api-key, X-Tenant-Id"
       },
       body: ""
     };
   }
 
-  const url = new URL(event.rawUrl);
+  const url = getRequestUrl(event);
+  const authInstance = pickAuthInstance(url);
   const headers = new Headers();
   for (const [k, v] of Object.entries(event.headers)) if (v) headers.set(k, String(v));
 
@@ -30,7 +84,7 @@ export const handler: Handler = async (event) => {
     ? (event.isBase64Encoded ? Buffer.from(event.body, "base64") : event.body)
     : undefined;
 
-  const res = await auth.handler(new Request(url.toString(), {
+  const res = await authInstance.handler(new Request(url.toString(), {
     method: event.httpMethod,
     headers,
     body
