@@ -19,19 +19,30 @@
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-# Admin API routes redirect to Netlify Functions
+# Admin routes → admin-auth function
+[[redirects]]
+  from = "/admin/log-stream"
+  to = "/.netlify/functions/admin-auth"
+  status = 200
+
 [[redirects]]
   from = "/admin/api/*"
-  to = "/.netlify/functions/auth"
+  to = "/.netlify/functions/admin-auth"
   status = 200
 
 [[redirects]]
   from = "/admin/auth/*"
-  to = "/.netlify/functions/auth"
+  to = "/.netlify/functions/admin-auth"
   status = 200
 
-# Legacy API routes
+# Tenant authentication routes → tenant-auth function
+[[redirects]]
+  from = "/api/auth/*"
+  to = "/.netlify/functions/tenant-auth"
+  status = 200
+
+# Legacy API routes → tenant-auth function
 [[redirects]]
   from = "/api/*"
-  to = "/.netlify/functions/auth"
+  to = "/.netlify/functions/tenant-auth"
   status = 200
