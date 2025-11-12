@@ -1,0 +1,36 @@
+Architect menemukan root cause-nya!
+🔍 Root Cause:
+Netlify function (netlify/functions/auth.ts) TIDAK menggunakan tenant middleware sama sekali!
+• Production (Netlify): Langsung pakai single auth.handler → semua data masuk ke public
+• Development (Fastify): Pakai tenant middleware + connection manager → data masuk ke schema tenant yang benar
+
+Mari saya cek file Netlify function untuk confirm:
+Sempurna! Saya sudah confirm masalahnya. Netlify function langsung memanggil single auth.handler tanpa tenant context!
+Lihat line 162-171 di netlify/functions/auth.ts:
+const authInstance = pickAuthInstance(url); // auth or adminAuth - SINGLE CLIENT
+const res = await authInstance.handler(...); // NO TENANT CONTEXT!
+
+🔧 Solusi:
+Saya perlu refactor Netlify function untuk support multi-tenant. Ini task yang cukup kompleks. 
+
+
+Fastify Multi-Tenant Flow:
+• Request comes in with X-Tenant-Id header (or subdomain/path)
+• tenantMiddleware extracts tenant identifier and validates it
+• Middleware sets request.tenantId and request.tenantSlug
+• Route handler calls getTenantAuth(tenantId) to get tenant-specific auth instance
+• Auth factory uses tenantManager.getClient(tenantId) to get tenant-specific Prisma client
+• Prisma client uses ?schema=tenant_xxx in connection URL
+• All data goes to correct tenant schema
+Key parts I need in Netlify function:
+• Initialize tenant manager (call tenantManager.initialize())
+• Extract tenant identifier from request (same logic as middleware)
+• Resolve tenant and validate it
+• Get tenant-specific auth instance via getTenantAuth(tenantId)
+• Handle both admin auth (no tenant) and tenant auth
+Let me now refactor the Netlify function to support this.
+The tricky part is:
+• Netlify functions are stateless, so I need to ensure tenant manager is initialized on cold starts
+• I need to handle tenant extraction similar to middleware
+• I need to keep admin auth separate (no tenant required)
+Let me create a helper module for Netlify to handle tenant resolution and then update the main function.
