@@ -8,7 +8,7 @@ This guide describes how to deploy AuthCore, provision tenants, and connect the 
 2. **Install dependencies and generate Prisma artifacts.** Run `npm install`, `npm run prisma:gen`, `npx @better-auth/cli generate prisma --yes`, and `npm run prisma:deploy` (or `npm run prisma:migrate` for local iteration).【F:README.md†L111-L153】
 3. **Start the service** with `npm run dev` for development or the Netlify build target for production deployment. Ensure `TRUSTED_ORIGINS` includes the SaaS frontends so cookie credentials work end-to-end.【F:README.md†L155-L219】
 4. **Enable optional admin APIs** by setting `ADMIN_API_KEY` when you need tenant lifecycle automation or metrics. Leave it unset otherwise.【F:MULTI_TENANT_USAGE.md†L81-L116】
-   - When deploying the bundled admin UI on Netlify, keep `NEXT_PUBLIC_API_URL` pointed at `/.netlify/functions`. The client automatically rewrites this value to `/.netlify/functions/auth` so login and management requests reach the Netlify function without manual URL tweaks.【F:admin-ui/lib/api-client.ts†L1-L28】【F:netlify.toml†L1-L34】
+   - When deploying the bundled admin UI on Netlify, set `NEXT_PUBLIC_API_URL=/.netlify/functions/admin-auth` so dashboard traffic hits the dedicated admin function. Tenant clients should call `/.netlify/functions/tenant-auth/*` directly (or continue using the `/api/auth/*` rewrite) to stay aligned with the new split deployment.【F:admin-ui/lib/api-client.ts†L1-L28】【F:netlify.toml†L1-L52】
 
 ## 2. Provision Tenants
 
