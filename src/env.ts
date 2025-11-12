@@ -60,13 +60,15 @@ function sanitizeBetterAuthUrl(rawUrl: string): string {
     const parsed = new URL(rawUrl);
     const origin = `${parsed.protocol}//${parsed.host}`;
 
-    if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
+    if (parsed.search || parsed.hash) {
       console.warn(
-        `[env] BETTER_AUTH_URL contains a path, query, or hash. Using origin "${origin}" instead.`
+        `[env] BETTER_AUTH_URL contains a query or hash. Ignoring them and using "${origin}${parsed.pathname}".`
       );
     }
 
-    return origin;
+    const normalizedPath = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/, "");
+
+    return `${origin}${normalizedPath}`;
   } catch (error) {
     console.warn(
       `[env] BETTER_AUTH_URL is invalid: ${(error as Error).message}. Using provided value without normalization.`
