@@ -1,44 +1,55 @@
 const envApiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '');
 const envAuthService = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL?.replace(/\/$/, '');
+const envAdminFunctionPath = process.env.NEXT_PUBLIC_ADMIN_FUNCTION_PATH?.replace(/\/$/, '');
 
-const relativeApiPath = envApiUrl && !/^https?:\/\//i.test(envApiUrl)
-  ? (envApiUrl.startsWith('/') ? envApiUrl : `/${envApiUrl}`)
+const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(value);
+const withLeadingSlash = (value: string) => (value.startsWith('/') ? value : `/${value}`);
+const mapNetlifyFunctionsPath = (value: string) =>
+  value === '/.netlify/functions' ? '/.netlify/functions/admin-auth' : value;
+
+const defaultFunctionPath = '/.netlify/functions/admin-auth';
+
+const adminFunctionPath = envAdminFunctionPath
+  ? isAbsoluteUrl(envAdminFunctionPath)
+    ? envAdminFunctionPath
+    : mapNetlifyFunctionsPath(withLeadingSlash(envAdminFunctionPath))
+  : defaultFunctionPath;
+
+const relativeApiPath = envApiUrl && !isAbsoluteUrl(envApiUrl)
+  ? mapNetlifyFunctionsPath(withLeadingSlash(envApiUrl))
   : undefined;
 
 const absoluteEnvBase = (() => {
-  if (envApiUrl && /^https?:\/\//i.test(envApiUrl)) {
+  if (envApiUrl && isAbsoluteUrl(envApiUrl)) {
     return envApiUrl;
   }
-  if (envAuthService && /^https?:\/\//i.test(envAuthService)) {
-    return `${envAuthService}/.netlify/functions`;
+  if (isAbsoluteUrl(adminFunctionPath)) {
+    return adminFunctionPath;
+  }
+  if (envAuthService && isAbsoluteUrl(envAuthService)) {
+    return `${envAuthService}${adminFunctionPath}`;
   }
   return undefined;
 })();
 
-const ensureAuthSuffix = (base: string) => {
-  const trimmed = base.replace(/\/$/, '');
-  if (trimmed.includes('/.netlify/functions') && !trimmed.endsWith('/auth')) {
-    return `${trimmed}/auth`;
-  }
-  return trimmed;
-};
-
-let cachedBase: string | undefined = absoluteEnvBase
-  ? ensureAuthSuffix(absoluteEnvBase)
-  : undefined;
+let cachedBase: string | undefined = absoluteEnvBase;
 
 const resolveApiBase = (): string => {
   if (cachedBase) return cachedBase;
 
   if (typeof window !== 'undefined') {
     const origin = window.location.origin.replace(/\/$/, '');
-    const relative = relativeApiPath ?? '/.netlify/functions';
-    cachedBase = ensureAuthSuffix(`${origin}${relative}`);
+    if (isAbsoluteUrl(adminFunctionPath)) {
+      cachedBase = adminFunctionPath;
+      return cachedBase;
+    }
+    const relative = relativeApiPath ?? adminFunctionPath;
+    cachedBase = `${origin}${relative}`;
     return cachedBase;
   }
 
   throw new Error(
-    'Unable to resolve API base URL. Set NEXT_PUBLIC_API_URL or NEXT_PUBLIC_AUTH_SERVICE_URL to an absolute URL.'
+    'Unable to resolve API base URL. Set NEXT_PUBLIC_API_URL, NEXT_PUBLIC_ADMIN_FUNCTION_PATH, or NEXT_PUBLIC_AUTH_SERVICE_URL to an absolute URL.'
   );
 };
 
