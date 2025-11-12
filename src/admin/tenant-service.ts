@@ -176,6 +176,8 @@ export class TenantService {
     try {
       await client.query('BEGIN');
 
+      await this.ensureTenantStatusConstraint(client);
+
       // Ensure identifiers are available within the transaction scope
       const existing = await client.query<{ id: string }>(
         `SELECT id FROM public.tenants WHERE id = $1 OR slug = $2 LIMIT 1`,
@@ -242,6 +244,44 @@ export class TenantService {
     } finally {
       client.release();
     }
+  }
+
+  private tenantStatusConstraintValidated = false;
+
+  private async ensureTenantStatusConstraint(client: PoolClient): Promise<void> {
+    if (this.tenantStatusConstraintValidated) {
+      return;
+    }
+
+    const result = await client.query<{ definition: string }>(`
+      SELECT pg_get_constraintdef(c.oid) AS definition
+      FROM pg_constraint c
+      JOIN pg_class t ON c.conrelid = t.oid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+      WHERE n.nspname = 'public'
+        AND t.relname = 'tenants'
+        AND c.conname = 'tenants_status_check'
+      LIMIT 1
+    `);
+
+    const definition = result.rows[0]?.definition ?? '';
+    const hasProvisioning = definition.includes("'provisioning'::text");
+    const hasFailed = definition.includes("'failed'::text");
+
+    if (!hasProvisioning || !hasFailed) {
+      await client.query(`
+        ALTER TABLE public.tenants
+          DROP CONSTRAINT IF EXISTS tenants_status_check
+      `);
+
+      await client.query(`
+        ALTER TABLE public.tenants
+          ADD CONSTRAINT tenants_status_check
+          CHECK (status IN ('active', 'suspended', 'deleted', 'provisioning', 'failed'))
+      `);
+    }
+
+    this.tenantStatusConstraintValidated = true;
   }
 
   /**
