@@ -13,6 +13,13 @@ CREATE TABLE IF NOT EXISTS public.tenants (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Ensure existing environments include provisioning lifecycle states
+ALTER TABLE public.tenants
+  DROP CONSTRAINT IF EXISTS tenants_status_check;
+ALTER TABLE public.tenants
+  ADD CONSTRAINT tenants_status_check
+  CHECK (status IN ('active', 'suspended', 'deleted', 'provisioning', 'failed'));
+
 -- Index for fast lookups
 CREATE INDEX IF NOT EXISTS idx_tenants_slug ON public.tenants(slug);
 CREATE INDEX IF NOT EXISTS idx_tenants_schema ON public.tenants(schema_name);
