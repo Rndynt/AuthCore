@@ -84,7 +84,7 @@ This service is framework-agnostic and can be consumed by Next.js, React, Node.j
                     └─────────┘    └─────────────────┘
 
 Netlify Deployment:
-/api/auth/* → /.netlify/functions/auth
+/api/auth/* → /.netlify/functions/tenant-auth
 
 JWKS Verification (Offline):
 Resource Service → GET /dev/jwks.json → Verify JWT locally
@@ -169,13 +169,14 @@ npx prisma db push
    TRUSTED_ORIGINS=https://your-frontend.com
    DATABASE_URL=postgresql://...?sslmode=require
    ENABLE_DEV_ENDPOINTS=false
+   NEXT_PUBLIC_API_URL=/.netlify/functions/admin-auth
    ```
 
 2. **netlify.toml** (already configured):
    ```toml
    [[redirects]]
      from = "/api/auth/*"
-     to = "/.netlify/functions/auth"
+     to = "/.netlify/functions/tenant-auth"
      status = 200
    ```
 
@@ -227,7 +228,7 @@ npm run dev
 
 ```bash
 # Netlify
-curl -i -c cookie.txt -X POST https://your-auth-service.netlify.app/api/auth/sign-up/email \
+curl -i -c cookie.txt -X POST https://your-auth-service.netlify.app/.netlify/functions/tenant-auth/sign-up/email \
   -H "Content-Type: application/json" \
   --data '{"email":"demo@example.com","password":"SecurePass123!"}'
 
@@ -243,7 +244,7 @@ curl -i -c cookie.txt -X POST https://your-replit-project.replit.dev/api/auth/si
 
 ```bash
 # Netlify
-curl -i -c cookie.txt -X POST https://your-auth-service.netlify.app/api/auth/sign-in/email \
+curl -i -c cookie.txt -X POST https://your-auth-service.netlify.app/.netlify/functions/tenant-auth/sign-in/email \
   -H "Content-Type: application/json" \
   --data '{"email":"demo@example.com","password":"SecurePass123!"}'
 
@@ -257,7 +258,7 @@ curl -i -c cookie.txt -X POST https://your-replit-project.replit.dev/api/auth/si
 
 ```bash
 # Netlify
-curl -i -b cookie.txt https://your-auth-service.netlify.app/api/auth/session
+curl -i -b cookie.txt https://your-auth-service.netlify.app/.netlify/functions/tenant-auth/session
 
 # Replit
 curl -i -b cookie.txt https://your-replit-project.replit.dev/api/auth/session
@@ -561,7 +562,7 @@ curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.ap
 
 ```javascript
 // React/Next.js fetch example
-const response = await fetch('https://your-auth-service.netlify.app/api/auth/sign-in/email', {
+const response = await fetch('https://your-auth-service.netlify.app/.netlify/functions/tenant-auth/sign-in/email', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -664,19 +665,19 @@ echo "=== Testing Netlify ==="
 
 # Sign up
 echo "Testing sign-up..."
-curl -i -c cookie.txt -X POST $BASE_NETLIFY/api/auth/sign-up/email \
+curl -i -c cookie.txt -X POST $BASE_NETLIFY/.netlify/functions/tenant-auth/sign-up/email \
   -H "Content-Type: application/json" \
   --data '{"email":"smoke-test@example.com","password":"TestPass123!"}'
 
 # Sign in
 echo "Testing sign-in..."
-curl -i -c cookie.txt -X POST $BASE_NETLIFY/api/auth/sign-in/email \
+curl -i -c cookie.txt -X POST $BASE_NETLIFY/.netlify/functions/tenant-auth/sign-in/email \
   -H "Content-Type: application/json" \
   --data '{"email":"smoke-test@example.com","password":"TestPass123!"}'
 
 # Get session
 echo "Testing session..."
-curl -i -b cookie.txt $BASE_NETLIFY/api/auth/session
+curl -i -b cookie.txt $BASE_NETLIFY/.netlify/functions/tenant-auth/session
 
 # Test /me endpoint
 echo "Testing /me..."
