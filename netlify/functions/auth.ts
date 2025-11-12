@@ -1,7 +1,9 @@
-import type { Handler, HandlerEvent } from "@netlify/functions";
+import { stream, type StreamingHandler } from "@netlify/functions";
+import type { HandlerEvent, StreamingResponse } from "@netlify/functions";
+
 import { auth } from "../../src/auth.js";
 import { adminAuth } from "../../src/admin/auth.js";
-import { handleAdminApiRequest } from "../../src/admin/api-handler.js";
+import { handleAdminApiRequest, handleAdminLogStream } from "../../src/admin/api-handler.js";
 import { trustedOrigins } from "../../src/env.js";
 
 const normalizeOrigin = (origin?: string) => {
@@ -74,7 +76,7 @@ const getClientIp = (event: HandlerEvent) => {
   return event.headers["x-nf-client-connection-ip"];
 };
 
-const responseToHandlerResult = async (res: Response, origin?: string) => {
+const responseToNetlifyResult = async (res: Response, origin?: string): Promise<StreamingResponse> => {
   const singleHeaders: Record<string, string> = {
     "Access-Control-Allow-Origin": allowOrigin(origin),
     "Access-Control-Allow-Credentials": "true"
@@ -90,17 +92,21 @@ const responseToHandlerResult = async (res: Response, origin?: string) => {
     }
   });
 
-  const text = await res.text().catch(() => "");
+  let body: string | ReadableStream<Uint8Array> | null = res.body;
+
+  if (!body) {
+    body = await res.text().catch(() => "");
+  }
 
   return {
     statusCode: res.status,
     headers: singleHeaders,
     multiValueHeaders: setCookies.length ? { "Set-Cookie": setCookies } : undefined,
-    body: text
+    body: body as any
   };
 };
 
-export const handler: Handler = async (event) => {
+const baseHandler: StreamingHandler = async (event) => {
   // CORS preflight
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -125,6 +131,20 @@ export const handler: Handler = async (event) => {
     ? (event.isBase64Encoded ? Buffer.from(event.body, "base64") : event.body)
     : undefined;
 
+  if (url.pathname === "/admin/log-stream") {
+    const logResponse = await handleAdminLogStream(new Request(url.toString(), {
+      method: event.httpMethod,
+      headers,
+      body
+    }), {
+      ip: getClientIp(event)
+    });
+
+    if (logResponse) {
+      return responseToNetlifyResult(logResponse, event.headers.origin);
+    }
+  }
+
   if (url.pathname.startsWith("/admin/api")) {
     const adminResponse = await handleAdminApiRequest(new Request(url.toString(), {
       method: event.httpMethod,
@@ -135,7 +155,7 @@ export const handler: Handler = async (event) => {
     });
 
     if (adminResponse) {
-      return responseToHandlerResult(adminResponse, event.headers.origin);
+      return responseToNetlifyResult(adminResponse, event.headers.origin);
     }
   }
 
@@ -150,6 +170,8 @@ export const handler: Handler = async (event) => {
     body
   }));
 
-  return responseToHandlerResult(res, event.headers.origin);
+  return responseToNetlifyResult(res, event.headers.origin);
 };
+
+export const handler = stream(baseHandler);
 

@@ -6,6 +6,9 @@ import {
   type SecuritySettings
 } from "./tenant-service.js";
 import { tenantManager } from "../multi-tenant/connection-manager.js";
+import { addLogListener, removeLogListener, type LogEvent } from "../utils/log-stream.js";
+
+const encoder = new TextEncoder();
 
 interface AdminSession {
   user: {
@@ -19,6 +22,26 @@ interface AdminSession {
 
 export interface AdminApiContext {
   ip?: string;
+}
+
+let tenantManagerReady = false;
+let tenantManagerInitPromise: Promise<void> | null = null;
+
+async function ensureTenantManagerInitialized() {
+  if (tenantManagerReady) {
+    return;
+  }
+
+  if (!tenantManagerInitPromise) {
+    tenantManagerInitPromise = tenantManager.initialize().then(() => {
+      tenantManagerReady = true;
+    }).catch((error) => {
+      tenantManagerInitPromise = null;
+      throw error;
+    });
+  }
+
+  await tenantManagerInitPromise;
 }
 
 const JSON_HEADERS = {
@@ -122,9 +145,12 @@ export async function handleAdminApiRequest(
     return null;
   }
 
-  await tenantManager.initialize().catch((error) => {
+  try {
+    await ensureTenantManagerInitialized();
+  } catch (error) {
     console.error("[Admin API] Failed to initialize tenant manager:", error);
-  });
+    return jsonResponse({ error: "Failed to initialize tenant manager" }, { status: 500 });
+  }
 
   const headers = new Headers(request.headers);
   const session = await ensureAdminSession(headers);
@@ -283,7 +309,7 @@ export async function handleAdminApiRequest(
           const limit = params.get("limit") ? Number(params.get("limit")) : undefined;
           const results = await tenantService.searchUsersAcrossTenants({ query: q, tenantId, limit });
           await tenantService.logAuditAction(adminUser.id, "search_users", "system", tenantId || "all", { query: q, limit }, ip);
-          return jsonResponse({ results });
+          return jsonResponse({ users: results });
         }
         break;
       }
@@ -383,4 +409,94 @@ export async function handleAdminApiRequest(
     console.error("[Admin API] Unexpected error:", error);
     return jsonResponse({ error: "Internal server error" }, { status: 500 });
   }
+}
+
+export async function handleAdminLogStream(
+  request: Request,
+  context: AdminApiContext = {}
+): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (url.pathname !== "/admin/log-stream") {
+    return null;
+  }
+
+  if (request.method.toUpperCase() !== "GET") {
+    return jsonResponse({ error: "Method Not Allowed" }, { status: 405 });
+  }
+
+  try {
+    await ensureTenantManagerInitialized();
+  } catch (error) {
+    console.error("[Admin Log Stream] Failed to initialize tenant manager:", error);
+    return jsonResponse({ error: "Failed to initialize tenant manager" }, { status: 500 });
+  }
+
+  const headers = new Headers(request.headers);
+  try {
+    await ensureAdminSession(headers);
+  } catch (error) {
+    if (error instanceof Response) {
+      return error;
+    }
+    console.error("[Admin Log Stream] Session validation error:", error);
+    return jsonResponse({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+
+  const ip = getClientIp(context);
+  if (ip) {
+    console.debug(`[Admin Log Stream] Client connected from ${ip}`);
+  }
+
+  let cleanup: (() => void) | null = null;
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const sendEvent = (event: string, data: unknown) => {
+        try {
+          const payload = `event: ${event}\n` + `data: ${JSON.stringify(data)}\n\n`;
+          controller.enqueue(encoder.encode(payload));
+        } catch (error) {
+          console.error("[Admin Log Stream] Failed to encode event:", error);
+        }
+      };
+
+      const listener = (event: LogEvent) => {
+        sendEvent("log", event);
+      };
+
+      sendEvent("ready", { ok: true });
+      addLogListener(listener);
+
+      const keepAlive = setInterval(() => {
+        controller.enqueue(encoder.encode(":keep-alive\n\n"));
+      }, 15000);
+
+      const abortHandler = () => {
+        cleanup?.();
+        controller.close();
+      };
+
+      request.signal?.addEventListener("abort", abortHandler);
+
+      cleanup = () => {
+        if (cleanup === null) return;
+        clearInterval(keepAlive);
+        removeLogListener(listener);
+        request.signal?.removeEventListener("abort", abortHandler);
+        cleanup = null;
+      };
+    },
+    cancel() {
+      cleanup?.();
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no"
+    }
+  });
 }
