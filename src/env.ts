@@ -51,7 +51,34 @@ const envSchema = z.object({
   TENANT_CLIENT_IDLE_TTL_MS: z.coerce.number().default(5 * 60 * 1000)
 });
 
-export const env = envSchema.parse(process.env);
+type Env = z.infer<typeof envSchema>;
+
+const rawEnv = envSchema.parse(process.env);
+
+function sanitizeBetterAuthUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const origin = `${parsed.protocol}//${parsed.host}`;
+
+    if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
+      console.warn(
+        `[env] BETTER_AUTH_URL contains a path, query, or hash. Using origin "${origin}" instead.`
+      );
+    }
+
+    return origin;
+  } catch (error) {
+    console.warn(
+      `[env] BETTER_AUTH_URL is invalid: ${(error as Error).message}. Using provided value without normalization.`
+    );
+    return rawUrl;
+  }
+}
+
+export const env: Env = {
+  ...rawEnv,
+  BETTER_AUTH_URL: sanitizeBetterAuthUrl(rawEnv.BETTER_AUTH_URL)
+};
 
 if (process.env.NODE_ENV === "production" && env.BETTER_AUTH_SECRET === DEFAULT_DEV_SECRET) {
   throw new Error(
@@ -77,18 +104,44 @@ function normalizeOrigin(raw: string) {
   }
 }
 
+function normalizePossibleOrigin(value?: string | null) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (!trimmed.includes("://")) {
+    return normalizeOrigin(`https://${trimmed}`);
+  }
+
+  return normalizeOrigin(trimmed);
+}
+
 const parsedOrigins = env.TRUSTED_ORIGINS
   .split(",")
   .map(normalizeOrigin)
   .filter((origin): origin is string => Boolean(origin));
 
-if (parsedOrigins.length === 0) {
+const netlifyEnvOrigins = [
+  normalizePossibleOrigin(process.env.URL),
+  normalizePossibleOrigin(process.env.DEPLOY_URL),
+  normalizePossibleOrigin(process.env.DEPLOY_PRIME_URL),
+  normalizePossibleOrigin(process.env.NETLIFY_CUSTOM_DOMAIN)
+].filter((origin): origin is string => Boolean(origin));
+
+const derivedOrigins = [
+  normalizePossibleOrigin(env.BETTER_AUTH_URL),
+  ...netlifyEnvOrigins
+].filter((origin): origin is string => Boolean(origin));
+
+const allTrustedOrigins = [...parsedOrigins, ...derivedOrigins];
+
+if (allTrustedOrigins.length === 0) {
   console.warn(
     "[env] TRUSTED_ORIGINS did not yield any valid origins. Falling back to runtime request origins."
   );
 }
 
-export const trustedOrigins = Array.from(new Set(parsedOrigins));
+export const trustedOrigins = Array.from(new Set(allTrustedOrigins));
 
 export const devEnabled = env.ENABLE_DEV_ENDPOINTS === "true";
 
