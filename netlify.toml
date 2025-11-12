@@ -8,7 +8,7 @@
 [build.environment]
   NODE_VERSION = "20"
   SECRETS_SCAN_OMIT_KEYS = "BETTER_AUTH_SECRET,BETTER_AUTH_URL,DATABASE_URL,TRUSTED_ORIGINS,ENABLE_DEV_ENDPOINTS"
-  NEXT_PUBLIC_API_URL = "/.netlify/functions"
+  NEXT_PUBLIC_API_URL = "/.netlify/functions/admin-auth"
 
 # Netlify Functions configuration for Prisma
 [functions]
