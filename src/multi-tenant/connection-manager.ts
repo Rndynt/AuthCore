@@ -3,16 +3,16 @@
  * Manages Prisma client connections per tenant schema
  */
 
-import Prisma from '@prisma/client';
+import prismaPkg from '@prisma/client';
 import pkg from 'pg';
 import type { Pool as PoolType } from 'pg';
 const { Pool } = pkg;
-const PrismaClient =
-  Prisma.PrismaClient ??
-  // Some environments expose the client on the default export
-  (Prisma as { default?: { PrismaClient?: typeof Prisma.PrismaClient } }).default?.PrismaClient ??
-  // Fall back to the default itself (CommonJS interop)
-  (Prisma as unknown as typeof Prisma.PrismaClient);
+// Handle both CommonJS and ESM builds of @prisma/client
+const { PrismaClient } = (prismaPkg as { PrismaClient?: typeof prismaPkg.PrismaClient }) ?? {};
+
+if (!PrismaClient) {
+  throw new Error("@prisma/client did not expose PrismaClient");
+}
 import { env } from '../env.js';
 import { Tenant, TenantRegistry, TenantNotFoundError, TenantSuspendedError } from './types';
 

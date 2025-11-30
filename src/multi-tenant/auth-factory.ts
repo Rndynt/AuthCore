@@ -6,16 +6,8 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin, organization, apiKey, jwt, bearer } from "better-auth/plugins";
-import Prisma from "@prisma/client";
 import { trustedOrigins, env } from "../env.js";
 import { tenantManager } from "./connection-manager.js";
-
-const PrismaClient =
-  Prisma.PrismaClient ??
-  // Some environments expose the client on the default export
-  (Prisma as { default?: { PrismaClient?: typeof Prisma.PrismaClient } }).default?.PrismaClient ??
-  // Fall back to the default itself (CommonJS interop)
-  (Prisma as unknown as typeof Prisma.PrismaClient);
 
 // Cache Better Auth instances per tenant
 const authInstances = new Map<string, ReturnType<typeof betterAuth>>();
