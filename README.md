@@ -29,7 +29,7 @@
 
 ## Overview
 
-AuthCore is a headless authentication microservice designed to serve multiple applications and microservices. It provides comprehensive authentication and authorization capabilities including:
+Realmio is a headless authentication microservice designed to serve multiple applications and microservices. It provides comprehensive authentication and authorization capabilities including:
 
 - **End-user authentication**: Email/password with cookie sessions
 - **Service-to-service auth**: API Keys and JWT/Bearer tokens with offline verification
@@ -72,7 +72,7 @@ This service is framework-agnostic and can be consumed by Next.js, React, Node.j
           └──────────┬───────────┴─────────┬─────────────┘
                      │                     │
                 ┌────▼─────────────────────▼────┐
-                │         AuthCore              │
+                │         Realmio              │
                 │    Fastify + Better-Auth      │
                 │                               │
                 │  /api/auth/*  │  /me  │ /dev/*│
