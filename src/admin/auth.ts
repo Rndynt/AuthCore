@@ -6,7 +6,7 @@
 
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
-import prismaPkg from '@prisma/client';
+⁹import prismaPkg from '@prisma/client';
 import { admin, organization } from 'better-auth/plugins';
 import { env } from '../env.js';
 
