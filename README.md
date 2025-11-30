@@ -1,4 +1,4 @@
-# AuthCore — Fastify + Better-Auth (Headless Authentication Service)
+# Realmio — Fastify + Better-Auth (Headless Authentication Service)
 
 ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-brightgreen)
 ![Database](https://img.shields.io/badge/Database-PostgreSQL%20%2B%20Prisma-blue)
