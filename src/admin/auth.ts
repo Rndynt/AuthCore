@@ -6,7 +6,7 @@
 
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
-import { PrismaClient } from '@prisma/client';
+import Prisma from '@prisma/client';
 import { admin, organization } from 'better-auth/plugins';
 import { env } from '../env.js';
 
@@ -14,6 +14,8 @@ const adminDatabaseUrl = new URL(env.DATABASE_URL);
 adminDatabaseUrl.searchParams.set('schema', 'authcore_system');
 
 // Prisma client for authcore_system schema
+const { PrismaClient } = Prisma;
+
 const adminPrisma = new PrismaClient({
   datasources: {
     db: {
