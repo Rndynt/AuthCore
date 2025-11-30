@@ -5,7 +5,8 @@
  * No tenant registry needed - directly connects to one fixed tenant schema.
  */
 
-import { PrismaClient } from '@prisma/client';
+import Prisma from '@prisma/client';
+const { PrismaClient } = Prisma;
 
 export class SingleTenantManager {
   private client: PrismaClient | null = null;

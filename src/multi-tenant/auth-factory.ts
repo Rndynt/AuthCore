@@ -6,9 +6,11 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin, organization, apiKey, jwt, bearer } from "better-auth/plugins";
-import { PrismaClient } from "@prisma/client";
+import Prisma from "@prisma/client";
 import { trustedOrigins, env } from "../env.js";
 import { tenantManager } from "./connection-manager.js";
+
+const { PrismaClient } = Prisma;
 
 // Cache Better Auth instances per tenant
 const authInstances = new Map<string, ReturnType<typeof betterAuth>>();
