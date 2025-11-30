@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { PrismaClient } from "@prisma/client";
+import Prisma from "@prisma/client";
 import { trustedOrigins, env } from "./env.js";
 
 // Plugins
@@ -9,6 +9,12 @@ import { apiKey } from "better-auth/plugins";
 import { jwt } from "better-auth/plugins";
 import { bearer } from "better-auth/plugins";
 
+const PrismaClient =
+  Prisma.PrismaClient ??
+  // Some environments expose the client on the default export
+  (Prisma as { default?: { PrismaClient?: typeof Prisma.PrismaClient } }).default?.PrismaClient ??
+  // Fall back to the default itself (CommonJS interop)
+  (Prisma as unknown as typeof Prisma.PrismaClient);
 const prisma = new PrismaClient({ log: ['warn','error'] });
 
 export const auth = betterAuth({
