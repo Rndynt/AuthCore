@@ -18,6 +18,12 @@ interface AuthContext {
 
 type DevRequest = FastifyRequest & { devAuthContext?: AuthContext };
 
+const devEndpointsRequireAdmin = env.DEV_ENDPOINTS_REQUIRE_ADMIN === "true";
+const devEndpointsIpAllowlist = env.DEV_ENDPOINTS_IP_ALLOWLIST
+  .split(",")
+  .map((ip) => ip.trim())
+  .filter(Boolean);
+
 function detectAuthMode(headers: Record<string, any>): AuthMode {
   if (headers["x-api-key"]) return "apiKey";
   if (headers.authorization?.startsWith("Bearer ")) return "bearer";
@@ -49,6 +55,30 @@ function extractTenantHint(request: FastifyRequest): string | null {
   }
 
   return null;
+}
+
+function getRequestIp(request: FastifyRequest): string | null {
+  const forwarded = request.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0]?.trim() ?? null;
+  }
+  if (Array.isArray(forwarded) && forwarded.length > 0) {
+    const first = forwarded[0]?.trim();
+    if (first) return first;
+  }
+
+  return request.ip || null;
+}
+
+function enforceDevEndpointIpAllowlist(request: FastifyRequest) {
+  if (devEndpointsIpAllowlist.length === 0) {
+    return;
+  }
+
+  const ip = getRequestIp(request);
+  if (!ip || !devEndpointsIpAllowlist.includes(ip)) {
+    throw { status: 403, message: "IP not allowed for dev endpoints" };
+  }
 }
 
 async function resolveAuthContext(config: AuthConfig, request: FastifyRequest): Promise<AuthContext> {
@@ -145,6 +175,8 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
   app.register((devApp) => {
     devApp.addHook("preHandler", async (request, reply) => {
       try {
+        enforceDevEndpointIpAllowlist(request);
+
         // Skip authentication for JWKS endpoint (must be public for JWT validation)
         if (request.url === "/dev/jwks.json") {
           return;
@@ -154,7 +186,11 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
         const headers = toHeaders(request.headers);
         const context = await resolveAuthContext(config, request);
         (request as DevRequest).devAuthContext = context;
-        await requireUser(context.authInstance, headers);
+        if (devEndpointsRequireAdmin) {
+          await requireAdmin(context.authInstance, headers);
+        } else {
+          await requireUser(context.authInstance, headers);
+        }
       } catch (error: any) {
         reply.status(error.status || 500).send({ error: error.message });
       }
