@@ -93,6 +93,12 @@ AUTH_MODE=multi
 NESTED_TENANCY_ENABLED=true
 BETTER_AUTH_URL=https://auth.example.com
 BETTER_AUTH_SECRET=<generated-secret>
+TRUSTED_ORIGINS=https://tenant-a.example.com,https://tenant-b.example.com
+```
+
+Wildcard subdomains are supported when the scheme is provided. For example:
+
+```bash
 TRUSTED_ORIGINS=https://*.example.com
 ```
 

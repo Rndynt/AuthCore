@@ -122,7 +122,7 @@ DEV_ENDPOINTS_REQUIRE_ADMIN=false
 
 - **PORT**: Replit automatically sets `process.env.PORT`. Listen on `0.0.0.0:${PORT}`
 - **BETTER_AUTH_URL**: Must match your public domain (Netlify in prod, Replit in dev)
-- **TRUSTED_ORIGINS**: Comma-separated list of domains allowed for CORS with credentials
+- **TRUSTED_ORIGINS**: Comma-separated list of origins allowed for CORS with credentials (supports wildcard subdomains like `https://*.example.com`; include the scheme)
 - **DATABASE_URL**: Include `?sslmode=require` for serverless PostgreSQL (Neon, Supabase, etc.)
 - **ENABLE_DEV_ENDPOINTS**: Set to `true` only in development/QA. NEVER in production.
 - **DEV_ENDPOINTS_IP_ALLOWLIST**: Optional comma-separated list of IPs allowed to access `/dev/*`.
@@ -558,6 +558,7 @@ curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.ap
 
 - **Credentials**: Browsers must send `credentials: 'include'` for cookie-based auth
 - **Origin Whitelist**: Add your frontend domain to `TRUSTED_ORIGINS`
+- **Wildcard Support**: Use `https://*.example.com` to allow dynamic subdomains (only subdomains, not the apex domain)
 
 ### Cookie Configuration
 
