@@ -1,6 +1,6 @@
-# AuthCore Feature Overview
+# Realmio Feature Overview
 
-AuthCore is a multi-schema authentication platform designed for SaaS products that need to mix
+Realmio is a multi-schema authentication platform designed for SaaS products that need to mix
 centralized administration with tenant-specific identity. The implementation is split into two
 isolated authentication surfaces—**admin** and **tenant**—that run on top of PostgreSQL schemas.
 
@@ -16,7 +16,7 @@ isolated authentication surfaces—**admin** and **tenant**—that run on top of
 
 ## Supported Deployment Modes
 
-AuthCore can be operated in three modes selected through environment variables:
+Realmio can be operated in three modes selected through environment variables:
 
 1. **Single** – Dedicated to one tenant or application with a fixed schema (`AUTH_MODE=single`).
 2. **Multi** – Shared environment where tenants are looked up from the registry (`AUTH_MODE=multi`).

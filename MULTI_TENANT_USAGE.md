@@ -1,4 +1,4 @@
-# Multi-Tenant Auth Service - Usage Guide
+# Multi-Tenant Realmio - Usage Guide
 
 ## Overview
 
@@ -233,4 +233,4 @@ ENABLE_DEV_ENDPOINTS="false"
 
 For questions atau issues, check:
 - `MULTI_TENANT_IMPLEMENTATION.md` - Technical implementation details
-- `MULTI_TENANT_SUMMARY.md` - Architecture overview (Bahasa Indonesia)
+- `docs/MULTI_TENANT_SUMMARY.md` - Architecture overview (Bahasa Indonesia)

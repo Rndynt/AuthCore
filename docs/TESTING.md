@@ -1,6 +1,6 @@
 # Testing Guide
 
-Use this guide to confirm that AuthCore is configured correctly after installation and provisioning.
+Use this guide to confirm that Realmio is configured correctly after installation and provisioning.
 Each section focuses on a specific surface: admin authentication, tenant authentication, and
 multi-tenant isolation.
 
@@ -21,7 +21,7 @@ curl -i \
   -b admin-cookie.txt \
   -X POST http://localhost:5000/admin/auth/sign-in/email \
   -H 'Content-Type: application/json' \
-  --data '{"email":"root@authcore.local","password":"AuthCore123!"}'
+  --data '{"email":"root@realmio.local","password":"Realmio123!"}'
 ```
 
 Expected outcome:
