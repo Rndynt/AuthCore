@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import { readFile } from "fs/promises";
 import { createRequire } from "node:module";
 import { auth } from "./auth.js";
-import { env, trustedOrigins, devEnabled } from "./env.js";
+import { env, trustedOrigins, devEnabled, isOriginTrusted } from "./env.js";
 import { registerDevEndpoints } from "./dev.js";
 import { getAuthConfig, displayAuthConfig, validateAuthConfig } from "./config/auth-mode.js";
 import { getFeatureFlags, displayFeatureFlags } from "./config/features.js";
@@ -65,7 +65,7 @@ app.register(requestLogger);
 app.register(cors, {
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
-    const ok = trustedOrigins.includes(origin);
+    const ok = isOriginTrusted(origin);
     cb(null, ok);
   },
   credentials: true,

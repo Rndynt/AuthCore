@@ -107,6 +107,37 @@ function normalizeOrigin(raw: string) {
   }
 }
 
+function normalizeTrustedOrigin(raw: string) {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const withProtocolSeparator = trimmed.replace(/^(https?)(\/\/)/i, "$1://");
+
+  if (withProtocolSeparator.includes("*")) {
+    const match = withProtocolSeparator.match(/^(https?):\/\/\*\.(.+)$/i);
+    if (!match) {
+      console.warn(
+        `[env] Ignoring invalid TRUSTED_ORIGINS wildcard "${trimmed}". Use "https://*.example.com".`
+      );
+      return null;
+    }
+
+    const protocol = match[1].toLowerCase();
+    const host = match[2].toLowerCase();
+
+    if (!host || host.includes("/")) {
+      console.warn(
+        `[env] Ignoring invalid TRUSTED_ORIGINS wildcard "${trimmed}". Host must not include a path.`
+      );
+      return null;
+    }
+
+    return `${protocol}://*.${host}`;
+  }
+
+  return normalizeOrigin(withProtocolSeparator);
+}
+
 function normalizePossibleOrigin(value?: string | null) {
   if (!value) return null;
   const trimmed = value.trim();
@@ -121,7 +152,7 @@ function normalizePossibleOrigin(value?: string | null) {
 
 const parsedOrigins = env.TRUSTED_ORIGINS
   .split(",")
-  .map(normalizeOrigin)
+  .map(normalizeTrustedOrigin)
   .filter((origin): origin is string => Boolean(origin));
 
 const netlifyEnvOrigins = [
@@ -149,3 +180,37 @@ export const trustedOrigins = Array.from(new Set(allTrustedOrigins));
 export const devEnabled = env.ENABLE_DEV_ENDPOINTS === "true";
 
 export const nestedTenancyEnabled = env.NESTED_TENANCY_ENABLED === "true";
+
+export function isOriginTrusted(origin: string) {
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) {
+    return false;
+  }
+
+  const parsed = new URL(normalized);
+  const originHost = parsed.host.toLowerCase();
+  const originProtocol = parsed.protocol.toLowerCase();
+
+  return trustedOrigins.some((entry) => {
+    if (entry.includes("*")) {
+      const match = entry.match(/^(https?):\/\/\*\.(.+)$/i);
+      if (!match) {
+        return false;
+      }
+
+      const protocol = match[1].toLowerCase();
+      const hostSuffix = match[2].toLowerCase();
+      if (originProtocol !== `${protocol}:`) {
+        return false;
+      }
+
+      if (!originHost.endsWith(`.${hostSuffix}`)) {
+        return false;
+      }
+
+      return originHost.length > hostSuffix.length + 1;
+    }
+
+    return entry.toLowerCase() === normalized.toLowerCase();
+  });
+}
