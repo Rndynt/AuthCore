@@ -114,6 +114,8 @@ TRUSTED_ORIGINS=https://your-frontend.com,https://your-admin-panel.com,http://lo
 
 # Development Only
 ENABLE_DEV_ENDPOINTS=false
+DEV_ENDPOINTS_IP_ALLOWLIST=
+DEV_ENDPOINTS_REQUIRE_ADMIN=false
 ```
 
 ### Environment Notes
@@ -123,6 +125,8 @@ ENABLE_DEV_ENDPOINTS=false
 - **TRUSTED_ORIGINS**: Comma-separated list of domains allowed for CORS with credentials
 - **DATABASE_URL**: Include `?sslmode=require` for serverless PostgreSQL (Neon, Supabase, etc.)
 - **ENABLE_DEV_ENDPOINTS**: Set to `true` only in development/QA. NEVER in production.
+- **DEV_ENDPOINTS_IP_ALLOWLIST**: Optional comma-separated list of IPs allowed to access `/dev/*`.
+- **DEV_ENDPOINTS_REQUIRE_ADMIN**: Set to `true` to require an admin role for all `/dev/*` routes (except JWKS).
 
 ## Database Setup
 
@@ -414,6 +418,8 @@ curl -i -c cookie.txt -b cookie.txt -X POST https://your-auth-service.netlify.ap
 ⚠️ **CRITICAL WARNING**: These endpoints are for development and QA only. **NEVER enable in production**.
 
 Enable by setting `ENABLE_DEV_ENDPOINTS=true`. All `/dev/*` routes return 404 when disabled.
+Use `DEV_ENDPOINTS_IP_ALLOWLIST` to restrict access by source IP, and `DEV_ENDPOINTS_REQUIRE_ADMIN=true`
+to require admin users for all dev endpoints (admin requirement does not apply to the JWKS route).
 
 ### Authentication Methods
 
