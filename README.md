@@ -386,6 +386,12 @@ Admin capabilities include user management, session control, and system operatio
 
 **Security**: Protect admin routes behind private networks, VPNs, or internal-only domains.
 
+### Admin Authentication
+
+Admin APIs use the Better Auth admin session cookie. Sign in through the `/admin/auth/*` endpoints
+from the admin UI (or via API) and reuse the session cookie for `/admin/api/*`, `/admin/tenants`,
+and `/admin/stats` calls.
+
 ### Admin Endpoints (Dev Mode)
 
 ```bash
