@@ -44,8 +44,8 @@ assert(
 );
 
 assert(
-  adminRoutesSource.includes("preHandler: adminSessionMiddleware"),
-  "Admin routes should include adminSessionMiddleware as the auth flow."
+  adminRoutesSource.includes("createAdminApiHandlers"),
+  "Admin routes should use shared admin API handlers."
 );
 
 if (failures.length > 0) {
