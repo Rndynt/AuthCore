@@ -11,6 +11,7 @@ import { registerDevEndpoints } from "./dev.js";
 import { getAuthConfig, displayAuthConfig, validateAuthConfig } from "./config/auth-mode.js";
 import { getFeatureFlags, displayFeatureFlags } from "./config/features.js";
 import { tenantManager } from "./multi-tenant/connection-manager.js";
+import { tenantService } from "./application/tenant-service.js";
 import { SingleTenantManager } from "./multi-tenant/single-tenant-manager.js";
 import { SubTenantManager } from "./multi-tenant/sub-tenant-manager.js";
 import { getTenantAuth } from "./multi-tenant/auth-factory.js";
@@ -210,13 +211,17 @@ function registerRoutes() {
     app.get("/tenant/info", {
       onRequest: tenantMiddleware
     }, async (req: TenantRequest, reply) => {
-      const tenant = tenantManager.getTenant(req.tenantId!);
+      const tenant = await tenantService.getTenant(req.tenantId!);
+      if (!tenant) {
+        reply.code(404).send({ error: 'Tenant not found' });
+        return;
+      }
       reply.send({
         tenant: {
-          id: tenant!.id,
-          name: tenant!.name,
-          slug: tenant!.slug,
-          status: tenant!.status
+          id: tenant.id,
+          name: tenant.name,
+          slug: tenant.slug,
+          status: tenant.status
         }
       });
     });
@@ -225,7 +230,7 @@ function registerRoutes() {
     app.get("/admin/tenants", {
       preHandler: adminSessionMiddleware
     }, async (req, reply) => {
-      const tenants = tenantManager.getAllTenants();
+      const tenants = await tenantService.listTenants();
       reply.send({
         tenants: tenants.map(t => ({
           id: t.id,
@@ -242,7 +247,7 @@ function registerRoutes() {
     app.get("/admin/stats", {
       preHandler: adminSessionMiddleware
     }, async (req, reply) => {
-      const stats = tenantManager.getStats();
+      const stats = tenantService.getConnectionStats();
       reply.send({
         generatedAt: new Date().toISOString(),
         connections: stats,
