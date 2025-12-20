@@ -6,7 +6,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { adminAuth } from './auth.js';
 import { adminSessionMiddleware, AdminRequest } from './middleware.js';
-import { tenantService, TenantValidationError, type SecuritySettings, type Tenant } from './tenant-service.js';
+import { tenantService, TenantValidationError, type SecuritySettings, type Tenant } from '../application/tenant-service.js';
 import { getRequestOrigin } from '../utils/http.js';
 import { addLogListener, removeLogListener, type LogEvent } from '../utils/log-stream.js';
 
