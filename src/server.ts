@@ -268,6 +268,12 @@ function registerRoutes() {
     method: ["GET", "POST"],
     url: "/legacy/auth/*",
     handler: async (request, reply) => {
+      reply.header("Deprecation", "true");
+      reply.header("Sunset", "2025-06-30");
+      reply.header(
+        "Warning",
+        '299 - "Deprecated: /legacy/auth/* will be removed after 2025-06-30. Use /api/auth/* instead."'
+      );
       const base = getRequestOrigin(request);
       const url = new URL(request.url, base);
       const headers = new Headers();
