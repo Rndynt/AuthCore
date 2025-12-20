@@ -38,6 +38,8 @@ variables are missing.
 | Database | `DATABASE_URL` | PostgreSQL connection string. | — | `src/env.ts`, Prisma clients |
 | CORS | `TRUSTED_ORIGINS` | Comma-separated origins allowed by CORS middleware. | Development defaults include localhost variants. | `src/env.ts`, `src/server.ts` |
 | Feature flags | `ENABLE_DEV_ENDPOINTS` | Enables `/dev/*` tooling routes when set to `true`. | `false` | `src/env.ts`, `src/dev.ts` |
+| Feature flags | `DEV_ENDPOINTS_IP_ALLOWLIST` | Comma-separated IPs allowed to access `/dev/*` routes. Empty means no IP restriction. | — | `src/env.ts`, `src/dev.ts` |
+| Feature flags | `DEV_ENDPOINTS_REQUIRE_ADMIN` | Require an admin role for all `/dev/*` routes (except JWKS). | `false` | `src/env.ts`, `src/dev.ts` |
 | Mode | `AUTH_MODE` | See above. | `multi` | `src/config/auth-mode.ts` |
 | Mode | `NESTED_TENANCY_ENABLED` | See above. | `false` | `src/config/auth-mode.ts` |
 | Single mode | `TENANT_ID` | Required when `AUTH_MODE=single`; identifies the fixed tenant. | — | `src/config/auth-mode.ts` |
