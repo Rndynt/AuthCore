@@ -4,7 +4,7 @@ import {
   TenantValidationError,
   type Tenant,
   type SecuritySettings
-} from "./tenant-service.js";
+} from "../application/tenant-service.js";
 import { tenantManager } from "../multi-tenant/connection-manager.js";
 import { addLogListener, removeLogListener, type LogEvent } from "../utils/log-stream.js";
 
