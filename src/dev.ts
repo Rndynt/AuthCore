@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import ipaddr from "ipaddr.js";
 import { auth } from "./auth.js";
 import { devEnabled, env } from "./env.js";
 import type { AuthConfig } from "./config/auth-mode.js";
@@ -19,10 +20,20 @@ interface AuthContext {
 type DevRequest = FastifyRequest & { devAuthContext?: AuthContext };
 
 const devEndpointsRequireAdmin = env.DEV_ENDPOINTS_REQUIRE_ADMIN === "true";
-const devEndpointsIpAllowlist = env.DEV_ENDPOINTS_IP_ALLOWLIST
+type AllowlistEntry =
+  | { kind: "ip"; ip: ipaddr.IPv4 | ipaddr.IPv6 }
+  | { kind: "cidr"; cidr: [ipaddr.IPv4 | ipaddr.IPv6, number] };
+
+const devEndpointsIpAllowlistEntries = env.DEV_ENDPOINTS_IP_ALLOWLIST
   .split(",")
   .map((ip) => ip.trim())
   .filter(Boolean);
+const devEndpointsIpAllowlist = devEndpointsIpAllowlistEntries
+  .map((entry) => parseAllowlistEntry(entry))
+  .filter((entry): entry is AllowlistEntry => Boolean(entry));
+const devEndpointsIpAllowlistConfigured = devEndpointsIpAllowlistEntries.length > 0;
+const devEndpointsIpAllowlistInvalid =
+  devEndpointsIpAllowlistConfigured && devEndpointsIpAllowlist.length === 0;
 
 function detectAuthMode(headers: Record<string, any>): AuthMode {
   if (headers["x-api-key"]) return "apiKey";
@@ -58,25 +69,78 @@ function extractTenantHint(request: FastifyRequest): string | null {
 }
 
 function getRequestIp(request: FastifyRequest): string | null {
-  const forwarded = request.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded.trim()) {
-    return forwarded.split(",")[0]?.trim() ?? null;
-  }
-  if (Array.isArray(forwarded) && forwarded.length > 0) {
-    const first = forwarded[0]?.trim();
-    if (first) return first;
+  const ip = request.ip;
+  if (typeof ip === "string" && ip.trim()) {
+    return ip.trim();
   }
 
-  return request.ip || null;
+  return null;
+}
+
+function normalizeIp(ip: string): ipaddr.IPv4 | ipaddr.IPv6 | null {
+  if (!ipaddr.isValid(ip)) {
+    return null;
+  }
+
+  const parsed = ipaddr.parse(ip);
+  if (parsed.kind() === "ipv6" && parsed.isIPv4MappedAddress()) {
+    return parsed.toIPv4Address();
+  }
+
+  return parsed;
+}
+
+function formatIp(ip: ipaddr.IPv4 | ipaddr.IPv6): string {
+  return ip.kind() === "ipv6" ? ip.toNormalizedString() : ip.toString();
+}
+
+function parseAllowlistEntry(entry: string): AllowlistEntry | null {
+  if (entry.includes("/")) {
+    try {
+      const cidr = ipaddr.parseCIDR(entry);
+      return { kind: "cidr", cidr };
+    } catch {
+      return null;
+    }
+  }
+
+  const ip = normalizeIp(entry);
+  if (!ip) {
+    return null;
+  }
+
+  return { kind: "ip", ip };
+}
+
+function isIpAllowed(
+  ip: ipaddr.IPv4 | ipaddr.IPv6,
+  allowlist: AllowlistEntry[],
+): boolean {
+  if (allowlist.length === 0) {
+    return true;
+  }
+
+  return allowlist.some((entry) => {
+    if (entry.kind === "cidr") {
+      return ip.match(entry.cidr);
+    }
+
+    return formatIp(ip) === formatIp(entry.ip);
+  });
 }
 
 function enforceDevEndpointIpAllowlist(request: FastifyRequest) {
+  if (devEndpointsIpAllowlistInvalid) {
+    throw { status: 403, message: "Invalid DEV_ENDPOINTS_IP_ALLOWLIST configuration" };
+  }
+
   if (devEndpointsIpAllowlist.length === 0) {
     return;
   }
 
   const ip = getRequestIp(request);
-  if (!ip || !devEndpointsIpAllowlist.includes(ip)) {
+  const normalizedIp = ip ? normalizeIp(ip) : null;
+  if (!normalizedIp || !isIpAllowed(normalizedIp, devEndpointsIpAllowlist)) {
     throw { status: 403, message: "IP not allowed for dev endpoints" };
   }
 }
