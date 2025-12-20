@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "check": "tsc",
+    "test": "node --import tsx --test",
     "prisma:gen": "prisma generate",
     "better-auth:gen": "npx @better-auth/cli generate prisma --yes",
     "prisma:migrate": "prisma migrate dev --name init",
