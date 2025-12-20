@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide walks through getting AuthCore running from a clean checkout. By the end you will have a
+This guide walks through getting Realmio running from a clean checkout. By the end you will have a
 local instance responding to both tenant and admin authentication requests.
 
 ## 1. Prerequisites
@@ -9,11 +9,11 @@ local instance responding to both tenant and admin authentication requests.
 |------------|---------|-------|
 | Node.js | 18.x or 20.x LTS | Required for Fastify server and tooling. |
 | npm | 9+ | Used by default in project scripts. |
-| PostgreSQL | 14+ | AuthCore relies on PostgreSQL schemas for isolation. |
+| PostgreSQL | 14+ | Realmio relies on PostgreSQL schemas for isolation. |
 | OpenSSL | — | Needed only to generate secure secrets. |
 
 Ensure PostgreSQL is reachable from your development machine and that you have a database prepared
-for AuthCore (the provisioning scripts create schemas and tables inside it).
+for Realmio (the provisioning scripts create schemas and tables inside it).
 
 ## 2. Clone & Install
 
@@ -31,7 +31,7 @@ necessary before the first run.
 
 ## 3. Configure Environment
 
-AuthCore reads all configuration from a `.env` file in the project root. Start from the template
+Realmio reads all configuration from a `.env` file in the project root. Start from the template
 below and adapt the values to your environment. Refer to [CONFIGURATION.md](./CONFIGURATION.md) for a
 complete explanation of each variable and the possible operating modes.
 

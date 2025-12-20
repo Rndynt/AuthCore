@@ -1,6 +1,6 @@
 # Provisioning Guide
 
-This guide describes how to create and maintain the PostgreSQL assets that AuthCore expects. The
+This guide describes how to create and maintain the PostgreSQL assets that Realmio expects. The
 process is split into three layers:
 
 1. **Core mode setup** – Creates tenant tables and schemas for your selected operating mode.
@@ -59,7 +59,7 @@ The script runs `scripts/setup-admin-schema.sql`, which contains the Better Auth
 
 ## 3. Seed Root Administrator
 
-AuthCore ships with a TypeScript seeder that creates or repairs the root admin credentials. Execute
+Realmio ships with a TypeScript seeder that creates or repairs the root admin credentials. Execute
 it anytime you need to guarantee access for the dashboard team.
 
 ```bash
@@ -67,7 +67,7 @@ export DATABASE_URL=postgresql://user:password@host:5432/authcore
 npx tsx scripts/seed-admin.ts
 ```
 
-The script outputs the credentials (`root@authcore.local` / `AuthCore123!`) and upgrades existing
+The script outputs the credentials (`root@realmio.local` / `Realmio123!`) and upgrades existing
 bcrypt hashes to Better Auth's scrypt format when required. Change the password immediately after the
 first login.
 
