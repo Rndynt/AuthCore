@@ -15,7 +15,7 @@ import { tenantService } from "./application/tenant-service.js";
 import { SingleTenantManager } from "./multi-tenant/single-tenant-manager.js";
 import { SubTenantManager } from "./multi-tenant/sub-tenant-manager.js";
 import { getTenantAuth } from "./multi-tenant/auth-factory.js";
-import { tenantMiddleware, type TenantRequest } from "./multi-tenant/middleware.js";
+import { tenantMiddleware, normalizeTenantIdentifier, type TenantRequest } from "./multi-tenant/middleware.js";
 import { registerAdminRoutes } from "./admin/routes.js";
 import { adminSessionMiddleware } from "./admin/middleware.js";
 import { getRequestOrigin } from "./utils/http.js";
@@ -166,6 +166,55 @@ function registerRoutes() {
       reply.send(text);
     };
 
+    const resolveTenantFromPath = async (request: TenantRequest, reply: FastifyReply) => {
+      const { tenantId } = request.params as { tenantId?: string };
+
+      if (!tenantId) {
+        reply.code(400).send({
+          error: 'TENANT_REQUIRED',
+          message: 'Tenant identifier required. Provide via X-Tenant-Id header or subdomain.',
+          examples: {
+            header: 'X-Tenant-Id: pos',
+            subdomain: 'pos.your-auth-domain.com'
+          }
+        });
+        return;
+      }
+
+      const normalizedIdentifier = normalizeTenantIdentifier(tenantId);
+      if (!normalizedIdentifier) {
+        reply.code(400).send({
+          error: 'TENANT_INVALID',
+          message: `Tenant identifier '${tenantId}' is not valid. Use lowercase letters, numbers, dashes, or underscores.`,
+          tenant: tenantId
+        });
+        return;
+      }
+
+      const tenant = tenantManager.resolveTenant(normalizedIdentifier);
+      if (!tenant) {
+        reply.code(404).send({
+          error: 'TENANT_NOT_FOUND',
+          message: `Tenant '${tenantId}' not found or inactive`,
+          tenantId
+        });
+        return;
+      }
+
+      if (tenant.status !== 'active') {
+        reply.code(403).send({
+          error: 'TENANT_SUSPENDED',
+          message: `Tenant '${tenant.id}' is ${tenant.status}`,
+          tenantId: tenant.id,
+          status: tenant.status
+        });
+        return;
+      }
+
+      request.tenantId = tenant.id;
+      request.tenantSlug = tenant.slug;
+    };
+
     app.route({
       method: ["GET", "POST"],
       url: "/api/auth/*",
@@ -176,7 +225,7 @@ function registerRoutes() {
     app.route({
       method: ["GET", "POST"],
       url: "/tenant/:tenantId/api/auth/*",
-      onRequest: tenantMiddleware,
+      preHandler: resolveTenantFromPath,
       handler: (request: TenantRequest, reply) =>
         forwardTenantAuth(request, reply, { stripTenantPrefix: true })
     });

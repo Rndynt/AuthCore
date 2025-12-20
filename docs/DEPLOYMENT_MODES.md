@@ -154,7 +154,6 @@ npm start
 Tenant Identification:
 - Header: X-Tenant-Id: pos
 - Subdomain: pos.auth.example.com
-- Path: /tenant/pos/api/auth/...
 ```
 
 ### Deployment Steps
