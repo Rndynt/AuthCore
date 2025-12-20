@@ -228,6 +228,20 @@ npm run dev
 - **Netlify**: `https://your-auth-service.netlify.app`
 - **Replit**: `https://your-replit-project.replit.dev`
 
+#### Tenant Identification (Multi-Tenant)
+
+Multi-tenant deployments resolve tenants in this order:
+
+1. **Header**: `X-Tenant-Id: <tenant-id>`
+2. **Subdomain**: `https://<tenant-slug>.your-auth-domain.com`
+3. **Path prefix**: `/tenant/<tenant-id>/api/auth/*`
+
+If you're using the path-based approach, call the auth endpoints under:
+
+```
+/tenant/<tenant-id>/api/auth/*
+```
+
 #### Sign Up
 
 ```bash
