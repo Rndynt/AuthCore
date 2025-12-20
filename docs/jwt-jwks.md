@@ -4,11 +4,11 @@ This guide covers JSON Web Token (JWT) issuance and verification using JWKS (JSO
 
 ## Overview
 
-AuthCore provides JWT tokens for stateless authentication that can be verified offline by resource servers without calling back to the auth service.
+Realmio provides JWT tokens for stateless authentication that can be verified offline by resource servers without calling back to the auth service.
 
 **Flow:**
-1. Client authenticates with AuthCore (cookie session)
-2. AuthCore issues short-lived JWT token
+1. Client authenticates with Realmio (cookie session)
+2. Realmio issues short-lived JWT token
 3. Client includes JWT in requests to resource services
 4. Resource services verify JWT offline using JWKS public keys
 
@@ -359,7 +359,7 @@ echo $JWT_TOKEN | cut -d. -f2 | base64 -d | jq
 
 ### Environment Configuration
 ```bash
-# Auth Service
+# Realmio
 BETTER_AUTH_URL=https://auth.yourcompany.com
 ENABLE_DEV_ENDPOINTS=false
 

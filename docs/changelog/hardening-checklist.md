@@ -21,7 +21,7 @@
 - [x] `src/admin/tenant-service.ts`, `src/admin/routes.ts` — transactional provisioning, cache invalidation, new admin endpoints.
 - [x] `src/multi-tenant/connection-manager.ts` — env-based configuration, idle TTL enforcement, cleanup scheduler.
 - [x] Admin UI (`admin-ui/app/*`, `admin-ui/lib/api-client.ts`) — dashboard overview, user management, security settings, audit explorer.
-- [x] Documentation: created `docs/hardening-checklist.md` to track risk mitigation and enhancements.
+- [x] Documentation: created `docs/changelog/hardening-checklist.md` to track risk mitigation and enhancements.
 
 ---
 

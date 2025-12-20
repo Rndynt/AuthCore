@@ -1,7 +1,7 @@
 # 🏢 Multi-Tenant Implementation Guide
 ## Separate Schema Pattern untuk Multiple Applications
 
-Panduan lengkap implementasi multi-tenancy dengan **database/schema isolation** untuk Auth Service.
+Panduan lengkap implementasi multi-tenancy dengan **database/schema isolation** untuk Realmio.
 
 ---
 
@@ -42,9 +42,9 @@ Panduan lengkap implementasi multi-tenancy dengan **database/schema isolation** 
 [POS App] ──┐
             │
 [Ticketing] ──┤ X-Tenant-Id: pos
-            │ ├─→ [Auth Service] ─→ Route to schema_pos
+            │ ├─→ [Realmio] ─→ Route to schema_pos
 [Exchange] ──┘ │
-            └─→ [Auth Service] ─→ Route to schema_crypto
+            └─→ [Realmio] ─→ Route to schema_crypto
 ```
 
 ---
@@ -299,7 +299,7 @@ export const tenantManager = new TenantConnectionManager();
 
 ---
 
-### **Phase 4: Multi-Tenant Auth Service**
+### **Phase 4: Multi-Tenant Realmio**
 
 #### 4.1 Updated Auth Configuration
 ```typescript
@@ -766,7 +766,7 @@ interface TenantMetrics {
 
 **Questions or need help?** Refer to:
 - `docs/organizations.md` - Organization concepts
-- `INTEGRATION_GUIDE.md` - API integration
-- `QUICK_START.md` - Quick testing
+- `docs/INTEGRATION_GUIDE.md` - API integration
+- `docs/QUICK_START.md` - Quick testing
 
 **Status:** ✅ Production-Ready Pattern | 🔒 Secure | 📈 Scalable

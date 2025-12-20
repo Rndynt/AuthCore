@@ -1,4 +1,4 @@
-# Migration Complete - AuthCore Multi-Tenant Setup
+# Migration Complete - Realmio Multi-Tenant Setup
 
 ## ✅ Status: FULLY OPERATIONAL
 
@@ -44,12 +44,12 @@ curl http://localhost:5000/api/auth/get-session \
 # Admin Signup
 curl -X POST http://localhost:5000/admin/auth/sign-up/email \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@authcore.local","password":"AdminPass123!","name":"Admin User"}'
+  -d '{"email":"admin@realmio.local","password":"AdminPass123!","name":"Admin User"}'
 
 # Admin Login  
 curl -X POST http://localhost:5000/admin/auth/sign-in/email \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@authcore.local","password":"AdminPass123!"}'
+  -d '{"email":"admin@realmio.local","password":"AdminPass123!"}'
 
 # Admin Get Session
 curl http://localhost:5000/admin/auth/get-session -b admin-cookies.txt
@@ -57,19 +57,19 @@ curl http://localhost:5000/admin/auth/get-session -b admin-cookies.txt
 
 ### Admin User Credentials
 ```
-Email: admin@authcore.local
+Email: admin@realmio.local
 Password: AdminPass123!
 ```
 
 ### Test Users Created
-- **Tenant POS**: admin@authcore.local / AdminPass123!
+- **Tenant POS**: admin@realmio.local / AdminPass123!
 - **Tenant Ticket**: user@ticket.local / TicketPass123!
 - **Tenant Crypto**: user@crypto.local / CryptoPass123!
 
 ## 🔧 Root Cause Analysis - "load failed" Error
 
 ### Issues Identified:
-1. **Port Conflict**: Admin UI and Auth Service both configured to port 5000
+1. **Port Conflict**: Admin UI and Realmio both configured to port 5000
 2. **API URL Problem**: Admin UI using `localhost:5000` which doesn't work in browser (only works in curl)
 3. **Missing Tables**: Tenant schemas didn't have auth tables initially
 
@@ -80,7 +80,7 @@ Password: AdminPass123!
 
 ## 🚀 Running the Services
 
-### Auth Service (Currently Running)
+### Realmio (Currently Running)
 ```bash
 PORT=5000 npm run dev
 ```
@@ -94,7 +94,7 @@ cd admin-ui
 npm run dev
 ```
 - Configured for: port 3000
-- API URL: Pointing to Auth Service via Replit HTTPS domain
+- API URL: Pointing to Realmio via Replit HTTPS domain
 - Dependencies: ✅ Installed
 
 ## 📝 Next Steps for Testing Admin UI
@@ -103,19 +103,19 @@ Since Replit webview can only expose one port (5000), to test the Admin UI login
 
 **Option 1: Test Locally (Recommended for Development)**
 ```bash
-# Terminal 1: Keep Auth Service running on port 5000
+# Terminal 1: Keep Realmio running on port 5000
 npm run dev
 
 # Terminal 2: Run Admin UI
 cd admin-ui && npm run dev
 # Access at: http://localhost:3000
-# Login with: admin@authcore.local / AdminPass123!
+# Login with: admin@realmio.local / AdminPass123!
 ```
 
 **Option 2: Temporarily Switch Ports for UI Testing**
 ```bash
-# Stop Auth Service
-# Change Auth Service to port 3001
+# Stop Realmio
+# Change Realmio to port 3001
 PORT=3001 npm run dev
 
 # Run Admin UI on port 5000 (exposed via Replit)
@@ -139,4 +139,4 @@ The "load failed" error was caused by:
 2. Incorrect API URL configuration (localhost instead of Replit domain)
 3. Missing database tables
 
-All issues have been resolved. The Auth Service is fully operational in multi-tenant mode with all endpoints working. Admin UI is configured and ready to run.
+All issues have been resolved. The Realmio is fully operational in multi-tenant mode with all endpoints working. Admin UI is configured and ready to run.

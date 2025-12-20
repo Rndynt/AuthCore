@@ -1,6 +1,6 @@
-# 🔐 Auth Service Integration Guide
+# 🔐 Realmio Integration Guide
 
-Panduan lengkap untuk mengintegrasikan aplikasi Anda dengan Auth Service di **https://0xauthx0.netlify.app**
+Panduan lengkap untuk mengintegrasikan aplikasi Anda dengan Realmio di **https://0xauthx0.netlify.app**
 
 ---
 
@@ -170,7 +170,7 @@ curl https://0xauthx0.netlify.app/.netlify/functions/tenant-auth/get-session \
 npm install axios
 ```
 
-#### 2. Create Auth Service (utils/authService.js)
+#### 2. Create Realmio (utils/authService.js)
 ```javascript
 import axios from 'axios';
 
@@ -358,7 +358,7 @@ export default function ProtectedRoute({ children }) {
 
 ### Vue.js
 
-#### 1. Create Auth Service (services/authService.js)
+#### 1. Create Realmio (services/authService.js)
 ```javascript
 import axios from 'axios';
 
@@ -840,6 +840,6 @@ Jika ada pertanyaan atau issue:
 
 ---
 
-**Auth Service URL:** https://0xauthx0.netlify.app
+**Realmio URL:** https://0xauthx0.netlify.app
 
 **Status:** ✅ Production Ready
