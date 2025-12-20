@@ -1,8 +1,8 @@
 # ⚡ Quick Start Guide
 
-Panduan cepat untuk mulai menggunakan Auth Service dalam 5 menit.
+Panduan cepat untuk mulai menggunakan Realmio dalam 5 menit.
 
-## 🎯 Test Auth Service (Tanpa Code)
+## 🎯 Test Realmio (Tanpa Code)
 
 ### 1. Sign Up User Baru
 ```bash
@@ -147,7 +147,7 @@ app.get('/protected', authMiddleware, (req, res) => {
 
 ## 📚 Dokumentasi Lengkap
 
-- **Full Integration Guide:** `INTEGRATION_GUIDE.md`
+- **Full Integration Guide:** `docs/INTEGRATION_GUIDE.md`
 - **React Example:** `examples/react-example.jsx`
 - **Node.js Example:** `examples/nodejs-middleware.js`
 - **Postman Collection:** `examples/postman-collection.json`
@@ -178,6 +178,6 @@ app.get('/protected', authMiddleware, (req, res) => {
 4. ✅ Deploy ke production
 5. ✅ Monitor dan scale!
 
-**Auth Service URL:** https://0xauthx0.netlify.app
+**Realmio URL:** https://0xauthx0.netlify.app
 
 **Status:** ✅ Production Ready | 🚀 High Performance | 🔒 Secure

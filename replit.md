@@ -1,4 +1,4 @@
-# AuthCore - Modular Multi-Tenant Authentication Service
+# Realmio - Modular Multi-Tenant Authentication Service
 
 ## Project Overview
 Flexible, modular authentication service built with Better Auth and Fastify. Supports three operational modes: single-tenant (dedicated), multi-tenant (shared), and hybrid (nested multi-tenancy).
@@ -75,18 +75,18 @@ This resolves `INVALID_ORIGIN` errors when accessing from mobile or different su
 **Admin UI Deployed**:
 - ✅ Next.js admin dashboard running on port 3000
 - ✅ Dependencies installed and configured
-- ✅ API client configured to connect to Auth Service
+- ✅ API client configured to connect to Realmio
 - ✅ Admin login, tenant management, and audit log pages active
 - ✅ React Query integration for efficient data fetching
 - ✅ Tailwind CSS + shadcn/ui components
 
 **Both Services Running**:
-- 🟢 Auth Service: Port 5000 (Backend API)
+- 🟢 Realmio: Port 5000 (Backend API)
 - 🟢 Admin UI: Port 3000 (Dashboard Interface)
 
 ### ✨ Modular Architecture Implementation
 
-Implemented configurable multi-mode AuthCore with complete flexibility:
+Implemented configurable multi-mode Realmio with complete flexibility:
 
 **New Features**:
 - ✅ Config layer with feature flags (`src/config/`)
@@ -177,7 +177,7 @@ The system is fully configured and running in **Multi-Tenant Mode**:
    ```bash
    curl -X POST http://localhost:5000/admin/auth/sign-up/email \
      -H 'Content-Type: application/json' \
-     -d '{"email":"admin@authcore.local","password":"AuthCore123!","name":"Admin"}'
+     -d '{"email":"admin@realmio.local","password":"Realmio123!","name":"Admin"}'
    ```
 
 2. **Access Admin Dashboard**:
@@ -267,7 +267,7 @@ curl -X POST http://localhost:5000/api/auth/sign-up/email \
 ### Required (All Modes)
 - `DATABASE_URL`: PostgreSQL connection string
 - `BETTER_AUTH_SECRET`: Secret for signing tokens
-- `BETTER_AUTH_URL`: Public URL of AuthCore
+- `BETTER_AUTH_URL`: Public URL of Realmio
 
 ### Mode Configuration
 - `AUTH_MODE`: `single` or `multi` (default: `multi`)
@@ -430,7 +430,7 @@ Comprehensive documentation available in `docs/`:
 
 ## Contributing
 
-When modifying AuthCore:
+When modifying Realmio:
 1. Test all three modes
 2. Update documentation
 3. Ensure backward compatibility

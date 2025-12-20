@@ -1,6 +1,6 @@
 # Configuration Reference
 
-AuthCore reads runtime configuration exclusively from environment variables. This document explains
+Realmio reads runtime configuration exclusively from environment variables. This document explains
 how each value is used and how to combine them to activate single-tenant, multi-tenant, or hybrid
 behaviour.
 

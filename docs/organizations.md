@@ -1,10 +1,10 @@
 # Organizations & Multi-Tenancy Guide
 
-This guide covers implementing multi-tenant applications using AuthCore's organization system with role-based access control (RBAC).
+This guide covers implementing multi-tenant applications using Realmio's organization system with role-based access control (RBAC).
 
 ## Overview
 
-Organizations in AuthCore provide:
+Organizations in Realmio provide:
 - **Multi-tenancy**: Isolated workspaces for different customers/teams
 - **Role-based Access**: Owner, Admin, and Member roles with different permissions
 - **Membership Management**: Invite, remove, and manage organization members
@@ -45,7 +45,7 @@ Represents a user's role within a specific organization:
 
 ```mermaid
 graph LR
-    A[Frontend] --> B[Auth Service]
+    A[Frontend] --> B[Realmio]
     B --> C[API Gateway]
     C --> D[Orders Service]
     C --> E[Billing Service]

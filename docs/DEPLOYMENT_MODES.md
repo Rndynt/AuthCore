@@ -1,8 +1,8 @@
-# AuthCore Deployment Modes Guide
+# Realmio Deployment Modes Guide
 
 ## Deployment Strategies
 
-This guide covers real-world deployment scenarios for AuthCore across different modes.
+This guide covers real-world deployment scenarios for Realmio across different modes.
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@ This guide covers real-world deployment scenarios for AuthCore across different 
 ### When to Use
 
 ✅ **Use single-tenant mode when**:
-- Dedicated AuthCore instance per application
+- Dedicated Realmio instance per application
 - Complete isolation from other services
 - Application has strict compliance requirements
 - Simple operational model preferred
@@ -29,7 +29,7 @@ This guide covers real-world deployment scenarios for AuthCore across different 
 
 ```
 ┌─────────────────────────────────────┐
-│  AuthCore-POS (Dedicated Instance)  │
+│  Realmio-POS (Dedicated Instance)  │
 │                                     │
 │  ENV:                               │
 │  - AUTH_MODE=single                 │
@@ -45,7 +45,7 @@ This guide covers real-world deployment scenarios for AuthCore across different 
 └─────────────────────────────────────┘
 
 ┌─────────────────────────────────────┐
-│  AuthCore-Crypto (Separate)         │
+│  Realmio-Crypto (Separate)         │
 │                                     │
 │  ENV:                               │
 │  - AUTH_MODE=single                 │
@@ -64,7 +64,7 @@ This guide covers real-world deployment scenarios for AuthCore across different 
 ### Deployment Steps
 
 ```bash
-# Server 1: POS AuthCore
+# Server 1: POS Realmio
 cd authcore-pos
 cat > .env << EOF
 AUTH_MODE=single
@@ -80,7 +80,7 @@ bash scripts/setup-single.sh
 npm run build
 npm start
 
-# Server 2: Crypto AuthCore
+# Server 2: Crypto Realmio
 cd authcore-crypto
 cat > .env << EOF
 AUTH_MODE=single
@@ -131,7 +131,7 @@ npm start
 
 ```
 ┌───────────────────────────────────────────────────┐
-│       Centralized AuthCore (Multi-Tenant)         │
+│       Centralized Realmio (Multi-Tenant)         │
 │                                                   │
 │  ENV:                                             │
 │  - AUTH_MODE=multi                                │
@@ -217,7 +217,7 @@ npm start
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│          Centralized AuthCore (Hybrid Mode)                 │
+│          Centralized Realmio (Hybrid Mode)                 │
 │                                                             │
 │  ENV:                                                       │
 │  - AUTH_MODE=multi                                          │
@@ -307,7 +307,7 @@ AUTH_MODE=single
 TENANT_ID=pos
 
 # Year 2: Add Crypto app, switch to Multi
-# 1. Setup multi-tenant AuthCore
+# 1. Setup multi-tenant Realmio
 bash scripts/setup-multi.sh
 
 # 2. Migrate POS data to tenant_pos schema
@@ -329,7 +329,7 @@ bash scripts/setup-nested.sh
 **Path**: Multi → Multi + Single (hybrid deployment)
 
 ```bash
-# Original: All in one multi-tenant AuthCore
+# Original: All in one multi-tenant Realmio
 # Problem: POS tenant too large (50 GB, 80% of traffic)
 
 # Solution: Spin out POS to dedicated instance
@@ -337,7 +337,7 @@ bash scripts/setup-nested.sh
 # 1. Export POS tenant schema
 pg_dump -n tenant_pos central_db > pos_export.sql
 
-# 2. Create new POS AuthCore
+# 2. Create new POS Realmio
 cd authcore-pos
 AUTH_MODE=single
 TENANT_ID=pos
@@ -347,11 +347,11 @@ bash scripts/setup-single.sh
 # 3. Import POS data
 psql $DATABASE_URL < pos_export.sql
 
-# 4. Update POS app to point to new AuthCore
+# 4. Update POS app to point to new Realmio
 # OLD: https://auth.example.com with X-Tenant-Id: pos
 # NEW: https://pos-auth.example.com (no tenant header)
 
-# 5. Drop POS from central AuthCore
+# 5. Drop POS from central Realmio
 DELETE FROM public.tenants WHERE id = 'pos';
 DROP SCHEMA tenant_pos CASCADE;
 ```
@@ -394,7 +394,7 @@ DROP SCHEMA tenant_pos CASCADE;
 ```yaml
 # Production multi-tenant with HA
 Compute:
-  - 2x AuthCore instances (load balanced)
+  - 2x Realmio instances (load balanced)
   - Health check: /healthz
   - Auto-restart on failure
 
