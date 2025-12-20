@@ -2,7 +2,10 @@ import { stream, type StreamingHandler } from "@netlify/functions";
 import type { HandlerEvent, StreamingResponse } from "@netlify/functions";
 
 import { adminAuth } from "../../src/admin/auth.js";
-import { handleAdminApiRequest, handleAdminLogStream } from "../../src/admin/api-handler.js";
+import { createAdminApiHandlers } from "../../src/admin/admin-api.js";
+import { tenantService } from "../../src/application/tenant-service.js";
+import { tenantManager } from "../../src/multi-tenant/connection-manager.js";
+import { addLogListener, removeLogListener } from "../../src/utils/log-stream.js";
 import { trustedOrigins } from "../../src/env.js";
 
 function normalizeOrigin(origin?: string): string | undefined {
@@ -120,6 +123,14 @@ function handleCorsPreflight(origin?: string): StreamingResponse {
  * 
  * Uses authcore_system schema (isolated from tenant schemas)
  */
+const { handleAdminApiRequest, handleAdminLogStream } = createAdminApiHandlers({
+  adminAuth,
+  tenantService,
+  tenantManager,
+  addLogListener,
+  removeLogListener
+});
+
 const baseHandler: StreamingHandler = async (event: HandlerEvent) => {
   // CORS preflight
   if (event.httpMethod === "OPTIONS") {
