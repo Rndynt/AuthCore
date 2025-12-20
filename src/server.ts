@@ -15,8 +15,8 @@ import { SingleTenantManager } from "./multi-tenant/single-tenant-manager.js";
 import { SubTenantManager } from "./multi-tenant/sub-tenant-manager.js";
 import { getTenantAuth } from "./multi-tenant/auth-factory.js";
 import { tenantMiddleware, type TenantRequest } from "./multi-tenant/middleware.js";
-import { adminAuthMiddleware } from "./admin-auth-middleware.js";
 import { registerAdminRoutes } from "./admin/routes.js";
+import { adminSessionMiddleware } from "./admin/middleware.js";
 import { getRequestOrigin } from "./utils/http.js";
 import requestLogger from "./utils/request-logger.js";
 import { getRequestMetricsSnapshot } from "./utils/request-metrics.js";
@@ -205,7 +205,7 @@ function registerRoutes() {
 
     // Admin: List all tenants (protected)
     app.get("/admin/tenants", {
-      preHandler: adminAuthMiddleware
+      preHandler: adminSessionMiddleware
     }, async (req, reply) => {
       const tenants = tenantManager.getAllTenants();
       reply.send({
@@ -222,7 +222,7 @@ function registerRoutes() {
 
     // Admin: Connection stats (protected)
     app.get("/admin/stats", {
-      preHandler: adminAuthMiddleware
+      preHandler: adminSessionMiddleware
     }, async (req, reply) => {
       const stats = tenantManager.getStats();
       reply.send({
@@ -236,7 +236,7 @@ function registerRoutes() {
     if (features.nestedTenancy && subTenantManager) {
       const stManager = subTenantManager;
       app.get("/admin/sub-tenants/:applicationId", {
-        preHandler: adminAuthMiddleware
+        preHandler: adminSessionMiddleware
       }, async (req, reply) => {
         const { applicationId } = req.params as { applicationId: string };
         const subTenants = stManager.getApplicationSubTenants(applicationId);

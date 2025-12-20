@@ -38,7 +38,6 @@ variables are missing.
 | Database | `DATABASE_URL` | PostgreSQL connection string. | — | `src/env.ts`, Prisma clients |
 | CORS | `TRUSTED_ORIGINS` | Comma-separated origins allowed by CORS middleware. | Development defaults include localhost variants. | `src/env.ts`, `src/server.ts` |
 | Feature flags | `ENABLE_DEV_ENDPOINTS` | Enables `/dev/*` tooling routes when set to `true`. | `false` | `src/env.ts`, `src/dev.ts` |
-| Admin auth | `ADMIN_API_KEY` | Optional API key for admin automation. | — | `src/admin/routes.ts` |
 | Mode | `AUTH_MODE` | See above. | `multi` | `src/config/auth-mode.ts` |
 | Mode | `NESTED_TENANCY_ENABLED` | See above. | `false` | `src/config/auth-mode.ts` |
 | Single mode | `TENANT_ID` | Required when `AUTH_MODE=single`; identifies the fixed tenant. | — | `src/config/auth-mode.ts` |
@@ -54,6 +53,13 @@ openssl rand -base64 32
 ```
 
 Store the generated value securely; it signs all admin and tenant sessions.
+
+## Admin Authentication
+
+Admin API routes use the Better Auth admin session cookie. Authenticate through the `/admin/auth/*`
+endpoints to establish an admin session, then call `/admin/api/*`, `/admin/tenants`, or
+`/admin/stats` with the same cookie. There is no API-key based admin auth flow; protect the admin
+surface with private networking, VPNs, or an internal-only domain.
 
 ## Example Configurations
 
