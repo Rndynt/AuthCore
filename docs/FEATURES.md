@@ -33,6 +33,8 @@ setup details for each mode.
 - Routes are namespaced under `/admin/auth/*` and `/admin/api/*`.
 - Protects dashboard APIs via `adminAuthMiddleware` and the Better Auth admin plugin.
 - Seeded with a root account through `scripts/seed-admin.ts`.
+- Disabled in single-tenant mode because the tenant registry and admin management APIs are not
+  initialized when `AUTH_MODE=single`.
 
 ### Tenant Surface
 
