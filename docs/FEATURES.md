@@ -68,7 +68,7 @@ Provisioning scripts in `scripts/` create these schemas and tables for each depl
 | `/api/auth/*` | Tenant authentication in multi or single mode. | Resolved by `auth` or tenant-specific handler. |
 | `/tenant/:tenantId/api/auth/*` | Tenant authentication with tenant ID in the path. | Uses tenant middleware to resolve the tenant. |
 | `/me` | Returns current tenant session context. | Tenant middleware required in multi mode. |
-| `/legacy/auth/*` | Backward-compatible route for legacy clients. | Shares the same auth handler as `/api/auth/*`. |
+| `/legacy/auth/*` | Deprecated legacy route (use `/api/auth/*`). Removal scheduled after 2025-06-30. | Shares the same auth handler as `/api/auth/*` and emits deprecation headers. |
 
 ## Feature Flags
 

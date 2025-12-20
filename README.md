@@ -90,6 +90,10 @@ JWKS Verification (Offline):
 Resource Service → GET /dev/jwks.json → Verify JWT locally
 ```
 
+## Deprecated Endpoints
+
+- `/legacy/auth/*` is deprecated and will be removed after **2025-06-30**. Use `/api/auth/*` instead. The legacy route now emits deprecation warning headers to aid migration.
+
 ## Prerequisites
 
 - **Node.js** >= 18
