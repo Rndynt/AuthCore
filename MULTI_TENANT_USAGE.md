@@ -42,7 +42,7 @@ curl -X POST https://your-auth-service.com/api/auth/sign-up/email \
 
 ### 2. Tenant Identification Methods
 
-Ada 3 cara untuk identify tenant:
+Ada 2 cara untuk identify tenant:
 
 #### A. Via Header (Recommended)
 ```bash
@@ -53,12 +53,6 @@ Ada 3 cara untuk identify tenant:
 ```
 https://pos.your-auth-service.com/api/auth/...
 https://ticket.your-auth-service.com/api/auth/...
-```
-
-#### C. Via Path
-```
-/tenant/pos/api/auth/...
-/tenant/ticket/api/auth/...
 ```
 
 ### 3. Integration dari Aplikasi Anda
