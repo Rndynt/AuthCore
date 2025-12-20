@@ -38,8 +38,8 @@ setup details for each mode.
 
 ### Tenant Surface
 
-- Tenant resolution happens in `tenantMiddleware`, which reads the `X-Tenant-Id` header, subdomains,
-  or `/tenant/{tenantId}` paths.
+- Tenant resolution happens in `tenantMiddleware`, which reads the `X-Tenant-Id` header or
+  subdomains.
 - Each tenant uses an isolated schema (`tenant_<slug>`), automatically provisioned when needed.
 - Supports nested sub-tenants when the feature flag is enabled.
 - Provides helper routes such as `/tenant/info` and `/me` for tenant-aware session introspection.
@@ -68,7 +68,7 @@ Provisioning scripts in `scripts/` create these schemas and tables for each depl
 | `/admin/auth/*` | Admin authentication endpoints (sign-in, sign-up, session). | Uses `adminAuth` (Better Auth admin instance). |
 | `/admin/api/*` | Admin dashboard APIs (tenant management, stats). | Guarded by `adminAuthMiddleware`. |
 | `/api/auth/*` | Tenant authentication in multi or single mode. | Resolved by `auth` or tenant-specific handler. |
-| `/tenant/:tenantId/api/auth/*` | Tenant authentication with tenant ID in the path. | Uses tenant middleware to resolve the tenant. |
+| `/tenant/:tenantId/api/auth/*` | Compatibility alias for `/api/auth/*` that maps the tenant ID from the path. | Resolves the tenant from the path parameter and forwards the request. |
 | `/me` | Returns current tenant session context. | Tenant middleware required in multi mode. |
 | `/legacy/auth/*` | Deprecated legacy route (use `/api/auth/*`). Removal scheduled after 2025-06-30. | Shares the same auth handler as `/api/auth/*` and emits deprecation headers. |
 

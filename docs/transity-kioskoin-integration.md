@@ -16,7 +16,7 @@ Realmio ships with a tenant registry stored in `public.tenants` and a connection
 
 1. **Create tenant entries** using the Admin API (or directly through `TenantService#createTenant`) with canonical IDs, slugs, and schema names. The service validates identifiers, inserts the registry record, provisions schema clones, and registers the tenant in memory.【F:src/admin/tenant-service.ts†L1-L111】
 2. **Handle lifecycle events** (activate, suspend, delete) via the tenant service. Each action updates the registry and refreshes the in-memory map so API traffic reflects the new status immediately.【F:src/admin/tenant-service.ts†L112-L220】
-3. **Verify availability** by calling `/me` or `/api/auth/*` with the `X-Tenant-Id` header, a tenant subdomain, or the `/tenant/{id}` prefix. All three resolution paths are accepted by the middleware.【F:MULTI_TENANT_USAGE.md†L17-L70】
+3. **Verify availability** by calling `/me` or `/api/auth/*` with the `X-Tenant-Id` header or a tenant subdomain. The middleware resolves tenants from those identifiers.【F:MULTI_TENANT_USAGE.md†L17-L70】
 4. **Monitor usage** from `/admin/stats` when an admin API key is configured. The endpoint now returns:
    - `generatedAt` → ISO timestamp showing when the snapshot was produced.
    - `connections` → the existing connection manager telemetry per tenant, including pool stats and idle TTL metadata.
@@ -43,7 +43,7 @@ Transity’s repository uses an Express backend (`server/index.ts`) alongside a 
 1. **Add Realmio configuration**: introduce environment variables such as `AUTHCORE_BASE_URL`, `AUTHCORE_TENANT_ID`, and optionally `AUTHCORE_ADMIN_API_KEY` in Transity. Load them in `server/index.ts` alongside existing Express bootstrap logic.
 2. **Create an authentication middleware** in `server/index.ts` (before `registerRoutes`) that forwards incoming cookies or bearer tokens to Realmio’s `/me` endpoint. The middleware should:
    - Pass through `Cookie` and `Authorization` headers from the client.
-   - Append `X-Tenant-Id: transity` (or use the subdomain/path variant if you expose multiple tenants from one deployment).
+   - Append `X-Tenant-Id: transity` (or use the subdomain variant if you expose multiple tenants from one deployment).
    - Reject requests when Realmio responds with `401` or the tenant status is suspended.
 3. **Protect API routes** by applying the middleware either globally (`app.use(protectedMiddleware)`) or selectively within `registerRoutes` depending on which endpoints need authentication. Since `registerRoutes` wires every `/api/*` resource controller, applying the middleware to `/api` ensures comprehensive coverage.
 4. **Handle service-to-service calls**: for schedulers or background jobs that need elevated access, request an Realmio API key via `/api/auth/api-key/create` and cache it in Transity’s secure configuration. Supply it through the `x-api-key` header when invoking protected endpoints from cron jobs or other services.【F:docs/INTEGRATION_GUIDE.md†L1-L112】【F:MULTI_TENANT_USAGE.md†L52-L80】
@@ -56,7 +56,7 @@ Transity’s repository uses an Express backend (`server/index.ts`) alongside a 
 
 ### 4.3 Multitenant routing
 
-If Transity will later host multiple customers, surface the tenant slug on the frontend (e.g., via domain or path) and pass it through the API to Realmio by overriding the default `X-Tenant-Id` header. The connection manager resolves IDs and slugs interchangeably, so an end-user-friendly slug is safe to expose.【F:src/multi-tenant/connection-manager.ts†L39-L93】
+If Transity will later host multiple customers, surface the tenant slug on the frontend (for example, via domain) and pass it through the API to Realmio by overriding the default `X-Tenant-Id` header. The connection manager resolves IDs and slugs interchangeably, so an end-user-friendly slug is safe to expose.【F:src/multi-tenant/connection-manager.ts†L39-L93】
 
 ## 5. Integrate KiosKoin
 

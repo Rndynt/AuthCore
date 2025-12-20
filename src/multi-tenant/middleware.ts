@@ -15,7 +15,7 @@ export interface TenantRequest extends FastifyRequest {
 
 /**
  * Extract tenant identifier from request
- * Priority: X-Tenant-Id header > subdomain > path
+ * Priority: X-Tenant-Id header > subdomain
  */
 function getHeaderValue(request: FastifyRequest, headerName: string): string | null {
   const headers = request.headers as Record<string, string | string[] | undefined>;
@@ -50,12 +50,6 @@ function extractTenantId(request: FastifyRequest): string | null {
     return subdomain;
   }
 
-  // 3. Check path (e.g., /tenant/pos/api/auth/...)
-  const pathMatch = request.url.match(/^\/tenant\/([^\/]+)/);
-  if (pathMatch) {
-    return pathMatch[1];
-  }
-
   return null;
 }
 
@@ -84,7 +78,7 @@ function extractSubdomain(hostname: string): string | null {
   return tenant.id.toLowerCase() === subdomain ? tenant.id : tenant.slug;
 }
 
-function normalizeTenantIdentifier(value: unknown): string | null {
+export function normalizeTenantIdentifier(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null;
   }
@@ -113,11 +107,10 @@ export async function tenantMiddleware(
   if (!tenantIdentifier) {
     return reply.code(400).send({
       error: 'TENANT_REQUIRED',
-      message: 'Tenant identifier required. Provide via X-Tenant-Id header, subdomain, or /tenant/{id} path',
+      message: 'Tenant identifier required. Provide via X-Tenant-Id header or subdomain.',
       examples: {
         header: 'X-Tenant-Id: pos',
-        subdomain: 'pos.your-auth-domain.com',
-        path: '/tenant/pos/api/auth/...'
+        subdomain: 'pos.your-auth-domain.com'
       }
     });
   }
