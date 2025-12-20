@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyReply } from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import path from "path";
@@ -130,36 +130,54 @@ function registerRoutes() {
     });
   } else {
     // Multi-tenant mode: routes with tenant middleware
+    const forwardTenantAuth = async (
+      request: TenantRequest,
+      reply: FastifyReply,
+      options?: { stripTenantPrefix?: boolean }
+    ) => {
+      const tenantId = request.tenantId!;
+      const tenantAuth = getTenantAuth(tenantId);
+
+      const base = getRequestOrigin(request);
+      const url = new URL(request.url, base);
+      if (options?.stripTenantPrefix) {
+        url.pathname = url.pathname.replace(/^\/tenant\/[^/]+\/api\/auth/, "/api/auth");
+      }
+
+      const headers = new Headers();
+      for (const [k, v] of Object.entries(request.headers)) {
+        if (v) headers.set(k, Array.isArray(v) ? v.join(",") : String(v));
+      }
+
+      const body = request.body
+        ? (typeof request.body === "string" ? request.body : JSON.stringify(request.body))
+        : undefined;
+
+      const res = await tenantAuth.handler(new Request(url.toString(), {
+        method: request.method,
+        headers,
+        body
+      }));
+
+      reply.status(res.status);
+      res.headers.forEach((val, key) => reply.header(key, val));
+      const text = await res.text().catch(() => "");
+      reply.send(text);
+    };
+
     app.route({
       method: ["GET", "POST"],
       url: "/api/auth/*",
       onRequest: tenantMiddleware,
-      handler: async (request: TenantRequest, reply) => {
-        const tenantId = request.tenantId!;
-        const tenantAuth = getTenantAuth(tenantId);
+      handler: (request: TenantRequest, reply) => forwardTenantAuth(request, reply)
+    });
 
-        const base = getRequestOrigin(request);
-        const url = new URL(request.url, base);
-        const headers = new Headers();
-        for (const [k, v] of Object.entries(request.headers)) {
-          if (v) headers.set(k, Array.isArray(v) ? v.join(",") : String(v));
-        }
-
-        const body = request.body
-          ? (typeof request.body === "string" ? request.body : JSON.stringify(request.body))
-          : undefined;
-
-        const res = await tenantAuth.handler(new Request(url.toString(), {
-          method: request.method,
-          headers,
-          body
-        }));
-
-        reply.status(res.status);
-        res.headers.forEach((val, key) => reply.header(key, val));
-        const text = await res.text().catch(() => "");
-        reply.send(text);
-      }
+    app.route({
+      method: ["GET", "POST"],
+      url: "/tenant/:tenantId/api/auth/*",
+      onRequest: tenantMiddleware,
+      handler: (request: TenantRequest, reply) =>
+        forwardTenantAuth(request, reply, { stripTenantPrefix: true })
     });
 
     // Helper route to resolve current session with tenant support

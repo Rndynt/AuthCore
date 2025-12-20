@@ -36,7 +36,8 @@ setup details for each mode.
 
 ### Tenant Surface
 
-- Tenant resolution happens in `tenantMiddleware`, which reads headers, domains, or the request path.
+- Tenant resolution happens in `tenantMiddleware`, which reads the `X-Tenant-Id` header, subdomains,
+  or `/tenant/{tenantId}` paths.
 - Each tenant uses an isolated schema (`tenant_<slug>`), automatically provisioned when needed.
 - Supports nested sub-tenants when the feature flag is enabled.
 - Provides helper routes such as `/tenant/info` and `/me` for tenant-aware session introspection.
@@ -65,6 +66,7 @@ Provisioning scripts in `scripts/` create these schemas and tables for each depl
 | `/admin/auth/*` | Admin authentication endpoints (sign-in, sign-up, session). | Uses `adminAuth` (Better Auth admin instance). |
 | `/admin/api/*` | Admin dashboard APIs (tenant management, stats). | Guarded by `adminAuthMiddleware`. |
 | `/api/auth/*` | Tenant authentication in multi or single mode. | Resolved by `auth` or tenant-specific handler. |
+| `/tenant/:tenantId/api/auth/*` | Tenant authentication with tenant ID in the path. | Uses tenant middleware to resolve the tenant. |
 | `/me` | Returns current tenant session context. | Tenant middleware required in multi mode. |
 | `/legacy/auth/*` | Backward-compatible route for legacy clients. | Shares the same auth handler as `/api/auth/*`. |
 
