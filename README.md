@@ -2,6 +2,10 @@
 
 Realmio adalah layanan autentikasi headless berbasis Fastify + Better Auth yang mendukung cookie session, API key, JWT, dan multi-tenant organizations.
 
+## 🧭 Tenant Identification
+
+Untuk mode multi-tenant, Realmio mengenali tenant melalui `X-Tenant-Id` header atau subdomain (misalnya `pos.your-auth-domain.com`).
+
 ## 📚 Dokumentasi
 
 Dokumentasi lengkap tersedia di `docs/README.md`.
