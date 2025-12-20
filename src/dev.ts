@@ -24,12 +24,16 @@ type AllowlistEntry =
   | { kind: "ip"; ip: ipaddr.IPv4 | ipaddr.IPv6 }
   | { kind: "cidr"; cidr: [ipaddr.IPv4 | ipaddr.IPv6, number] };
 
-const devEndpointsIpAllowlist = env.DEV_ENDPOINTS_IP_ALLOWLIST
+const devEndpointsIpAllowlistEntries = env.DEV_ENDPOINTS_IP_ALLOWLIST
   .split(",")
   .map((ip) => ip.trim())
-  .filter(Boolean)
+  .filter(Boolean);
+const devEndpointsIpAllowlist = devEndpointsIpAllowlistEntries
   .map((entry) => parseAllowlistEntry(entry))
   .filter((entry): entry is AllowlistEntry => Boolean(entry));
+const devEndpointsIpAllowlistConfigured = devEndpointsIpAllowlistEntries.length > 0;
+const devEndpointsIpAllowlistInvalid =
+  devEndpointsIpAllowlistConfigured && devEndpointsIpAllowlist.length === 0;
 
 function detectAuthMode(headers: Record<string, any>): AuthMode {
   if (headers["x-api-key"]) return "apiKey";
@@ -126,6 +130,10 @@ function isIpAllowed(
 }
 
 function enforceDevEndpointIpAllowlist(request: FastifyRequest) {
+  if (devEndpointsIpAllowlistInvalid) {
+    throw { status: 403, message: "Invalid DEV_ENDPOINTS_IP_ALLOWLIST configuration" };
+  }
+
   if (devEndpointsIpAllowlist.length === 0) {
     return;
   }
