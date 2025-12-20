@@ -76,6 +76,10 @@ BETTER_AUTH_SECRET=<generated-secret>
 TRUSTED_ORIGINS=https://pos.example.com
 ```
 
+Single-tenant mode skips the tenant registry and admin management APIs. Requests to `/admin/api/*`,
+`/admin/tenants`, and `/admin/stats` are intentionally disabled, because they depend on multi-tenant
+registry state.
+
 ### Shared Multi-Tenant Instance
 
 ```bash

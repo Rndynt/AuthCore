@@ -358,8 +358,12 @@ const startServer = async () => {
     // Register routes after initialization
     registerRoutes();
     
-    // Register admin routes (always available)
-    await registerAdminRoutes(app);
+    // Register admin routes (multi-tenant only)
+    if (authConfig.mode !== 'single') {
+      await registerAdminRoutes(app);
+    } else {
+      app.log.info('Admin routes disabled in single-tenant mode.');
+    }
 
     // Register dev endpoints (if enabled)
     if (features.devEndpoints) {
