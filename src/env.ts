@@ -43,6 +43,8 @@ const envSchema = z.object({
   TRUSTED_ORIGINS: z.string().default(getDefaultTrustedOrigins()),
   DATABASE_URL: z.string().url(),
   ENABLE_DEV_ENDPOINTS: z.string().default("false"),
+  DEV_ENDPOINTS_IP_ALLOWLIST: z.string().default(""),
+  DEV_ENDPOINTS_REQUIRE_ADMIN: z.string().default("false"),
   AUTH_MODE: z.enum(["single", "multi"]).default("multi"),
   TENANT_ID: z.string().default("default-tenant"),
   TENANT_SCHEMA: z.string().default("public"),
