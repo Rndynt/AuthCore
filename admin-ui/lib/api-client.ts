@@ -219,4 +219,69 @@ export const apiClient = {
     const query = searchParams.toString();
     return this.request(`/admin/api/audit-logs${query ? `?${query}` : ''}`);
   },
+
+  async getOrganizations() {
+    return this.request('/admin/api/organizations');
+  },
+
+  async createOrganization(data: { name: string; slug: string; description?: string }) {
+    return this.request('/admin/api/organizations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getOrganization(id: string) {
+    return this.request(`/admin/api/organizations/${id}`);
+  },
+
+  async updateOrganization(id: string, data: { name?: string; slug?: string; description?: string; logo?: string }) {
+    return this.request(`/admin/api/organizations/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteOrganization(id: string) {
+    return this.request(`/admin/api/organizations/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async addOrganizationMember(orgId: string, userId: string, role: string = 'member') {
+    return this.request(`/admin/api/organizations/${orgId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, role }),
+    });
+  },
+
+  async updateOrganizationMember(orgId: string, memberId: string, role: string) {
+    return this.request(`/admin/api/organizations/${orgId}/members/${memberId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    });
+  },
+
+  async removeOrganizationMember(orgId: string, memberId: string) {
+    return this.request(`/admin/api/organizations/${orgId}/members/${memberId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async sendOrganizationInvitation(orgId: string, email: string, role: string = 'member') {
+    return this.request(`/admin/api/organizations/${orgId}/invitations`, {
+      method: 'POST',
+      body: JSON.stringify({ email, role }),
+    });
+  },
+
+  async getOrganizationInvitations(orgId: string) {
+    return this.request(`/admin/api/organizations/${orgId}/invitations`);
+  },
+
+  async revokeOrganizationInvitation(orgId: string, invitationId: string) {
+    return this.request(`/admin/api/organizations/${orgId}/invitations/${invitationId}`, {
+      method: 'DELETE',
+    });
+  },
 };

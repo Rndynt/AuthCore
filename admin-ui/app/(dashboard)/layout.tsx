@@ -15,7 +15,8 @@ import {
   UserSearch,
   ShieldCheck,
   LifeBuoy,
-  Activity
+  Activity,
+  Building2
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -64,6 +65,7 @@ export default function DashboardLayout({
   const navItems = [
     { href: '/', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/tenants', label: 'Tenants', icon: Users },
+    { href: '/organizations', label: 'Organizations', icon: Building2 },
     { href: '/users', label: 'Users', icon: UserSearch },
     { href: '/monitoring', label: 'Live monitoring', icon: Activity },
     { href: '/support-sessions', label: 'Support sessions', icon: LifeBuoy },
