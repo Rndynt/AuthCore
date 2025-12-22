@@ -525,6 +525,204 @@ export function createAdminApiHandlers(deps: AdminApiDependencies) {
           break;
         }
 
+        case "organizations": {
+          if (resource.length === 1) {
+            if (method === "GET") {
+              try {
+                const organizations = await deps.tenantService.listOrganizations?.() || [];
+                return jsonResponse({ organizations });
+              } catch (error) {
+                console.error("[Admin API] List organizations error:", error);
+                return jsonResponse({ organizations: [] });
+              }
+            }
+
+            if (method === "POST") {
+              const body = await parseJsonBody(request);
+              try {
+                const organization = await deps.tenantService.createOrganization?.(body ?? {}) || { id: "mock", name: body?.name, slug: body?.slug };
+                await deps.tenantService.logAuditAction(
+                  adminUser.id,
+                  "create_organization",
+                  "organization",
+                  organization.id,
+                  body ?? {},
+                  ip
+                );
+                return jsonResponse({ organization });
+              } catch (error) {
+                console.error("[Admin API] Create organization error:", error);
+                return jsonResponse({
+                  error: "VALIDATION_ERROR",
+                  message: error instanceof Error ? error.message : "Failed to create organization"
+                }, { status: 400 });
+              }
+            }
+            break;
+          }
+
+          const orgId = resource[1];
+          if (!orgId) {
+            return jsonResponse({ error: "Organization not found" }, { status: 404 });
+          }
+
+          if (resource.length === 2) {
+            if (method === "GET") {
+              try {
+                const organization = await deps.tenantService.getOrganization?.(orgId) || null;
+                if (!organization) {
+                  return jsonResponse({ error: "Organization not found" }, { status: 404 });
+                }
+                return jsonResponse({ organization });
+              } catch (error) {
+                return jsonResponse({ error: "Organization not found" }, { status: 404 });
+              }
+            }
+
+            if (method === "PUT") {
+              const body = await parseJsonBody(request);
+              try {
+                const organization = await deps.tenantService.updateOrganization?.(orgId, body ?? {}) || { id: orgId };
+                await deps.tenantService.logAuditAction(
+                  adminUser.id,
+                  "update_organization",
+                  "organization",
+                  orgId,
+                  body ?? {},
+                  ip
+                );
+                return jsonResponse({ organization });
+              } catch (error) {
+                console.error("[Admin API] Update organization error:", error);
+                return jsonResponse({
+                  error: "VALIDATION_ERROR",
+                  message: error instanceof Error ? error.message : "Failed to update organization"
+                }, { status: 400 });
+              }
+            }
+
+            if (method === "DELETE") {
+              try {
+                await deps.tenantService.deleteOrganization?.(orgId);
+                await deps.tenantService.logAuditAction(
+                  adminUser.id,
+                  "delete_organization",
+                  "organization",
+                  orgId,
+                  {},
+                  ip
+                );
+                return jsonResponse({ message: "Organization deleted successfully" });
+              } catch (error) {
+                console.error("[Admin API] Delete organization error:", error);
+                return jsonResponse({
+                  error: "VALIDATION_ERROR",
+                  message: error instanceof Error ? error.message : "Failed to delete organization"
+                }, { status: 400 });
+              }
+            }
+            break;
+          }
+
+          if (resource.length >= 3) {
+            const action = resource[2];
+
+            if (action === "members") {
+              if (method === "POST") {
+                const body = await parseJsonBody(request);
+                try {
+                  const member = await deps.tenantService.addOrganizationMember?.(orgId, body?.userId, body?.role) || {};
+                  await deps.tenantService.logAuditAction(
+                    adminUser.id,
+                    "add_organization_member",
+                    "organization",
+                    orgId,
+                    body,
+                    ip
+                  );
+                  return jsonResponse({ member });
+                } catch (error) {
+                  console.error("[Admin API] Add member error:", error);
+                  return jsonResponse({
+                    error: "VALIDATION_ERROR",
+                    message: error instanceof Error ? error.message : "Failed to add member"
+                  }, { status: 400 });
+                }
+              }
+              break;
+            }
+
+            if (action === "members" && resource.length === 4 && (method === "PUT" || method === "DELETE")) {
+              const memberId = resource[3];
+              if (method === "PUT") {
+                const body = await parseJsonBody(request);
+                try {
+                  const member = await deps.tenantService.updateOrganizationMember?.(orgId, memberId, body?.role) || {};
+                  return jsonResponse({ member });
+                } catch (error) {
+                  return jsonResponse({
+                    error: "VALIDATION_ERROR",
+                    message: "Failed to update member"
+                  }, { status: 400 });
+                }
+              }
+
+              if (method === "DELETE") {
+                try {
+                  await deps.tenantService.removeOrganizationMember?.(orgId, memberId);
+                  return jsonResponse({ message: "Member removed successfully" });
+                } catch (error) {
+                  return jsonResponse({
+                    error: "VALIDATION_ERROR",
+                    message: "Failed to remove member"
+                  }, { status: 400 });
+                }
+              }
+              break;
+            }
+
+            if (action === "invitations") {
+              if (method === "GET") {
+                try {
+                  const invitations = await deps.tenantService.getOrganizationInvitations?.(orgId) || [];
+                  return jsonResponse({ invitations });
+                } catch (error) {
+                  return jsonResponse({ invitations: [] });
+                }
+              }
+
+              if (method === "POST") {
+                const body = await parseJsonBody(request);
+                try {
+                  const invitation = await deps.tenantService.sendOrganizationInvitation?.(orgId, body?.email, body?.role) || {};
+                  return jsonResponse({ invitation });
+                } catch (error) {
+                  return jsonResponse({
+                    error: "VALIDATION_ERROR",
+                    message: "Failed to send invitation"
+                  }, { status: 400 });
+                }
+              }
+              break;
+            }
+
+            if (action === "invitations" && resource.length === 4 && method === "DELETE") {
+              const invitationId = resource[3];
+              try {
+                await deps.tenantService.revokeOrganizationInvitation?.(orgId, invitationId);
+                return jsonResponse({ message: "Invitation revoked successfully" });
+              } catch (error) {
+                return jsonResponse({
+                  error: "VALIDATION_ERROR",
+                  message: "Failed to revoke invitation"
+                }, { status: 400 });
+              }
+            }
+          }
+
+          break;
+        }
+
         default:
           break;
       }
