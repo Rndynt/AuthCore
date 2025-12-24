@@ -52,16 +52,40 @@
       "namedRegex": "^/audit(?:/)?$"
     },
     {
+      "page": "/dashboard",
+      "regex": "^/dashboard(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard(?:/)?$"
+    },
+    {
       "page": "/login",
       "regex": "^/login(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/login(?:/)?$"
     },
     {
+      "page": "/monitoring",
+      "regex": "^/monitoring(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/monitoring(?:/)?$"
+    },
+    {
+      "page": "/organizations",
+      "regex": "^/organizations(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/organizations(?:/)?$"
+    },
+    {
       "page": "/security",
       "regex": "^/security(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/security(?:/)?$"
+    },
+    {
+      "page": "/support-sessions",
+      "regex": "^/support\\-sessions(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/support\\-sessions(?:/)?$"
     },
     {
       "page": "/tenants",
