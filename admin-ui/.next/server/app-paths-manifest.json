@@ -2,8 +2,12 @@
   "/_not-found/page": "app/_not-found/page.js",
   "/(auth)/login/page": "app/(auth)/login/page.js",
   "/(dashboard)/audit/page": "app/(dashboard)/audit/page.js",
+  "/(dashboard)/dashboard/page": "app/(dashboard)/dashboard/page.js",
+  "/(dashboard)/monitoring/page": "app/(dashboard)/monitoring/page.js",
   "/(dashboard)/page": "app/(dashboard)/page.js",
   "/(dashboard)/security/page": "app/(dashboard)/security/page.js",
+  "/(dashboard)/support-sessions/page": "app/(dashboard)/support-sessions/page.js",
+  "/(dashboard)/tenants/page": "app/(dashboard)/tenants/page.js",
   "/(dashboard)/users/page": "app/(dashboard)/users/page.js",
-  "/(dashboard)/tenants/page": "app/(dashboard)/tenants/page.js"
+  "/(dashboard)/organizations/page": "app/(dashboard)/organizations/page.js"
 }
