@@ -42,6 +42,7 @@ export function OrganizationDetailsSheet({
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
@@ -49,11 +50,13 @@ export function OrganizationDetailsSheet({
     if (organization) {
       setName(organization.name);
       setDescription(organization.description || '');
+      const metadata = organization.metadata && typeof organization.metadata === 'object' ? organization.metadata : {};
+      setPaymentMethod(typeof metadata.paymentMethod === 'string' ? metadata.paymentMethod : '');
     }
   }, [organization]);
 
   const updateMutation = useMutation({
-    mutationFn: (data: { name: string; description: string }) =>
+    mutationFn: (data: { name: string; description: string; metadata?: Record<string, any> }) =>
       organization ? apiClient.updateOrganization(organization.id, data) : Promise.reject(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organizations'] });
@@ -79,7 +82,18 @@ export function OrganizationDetailsSheet({
 
   const handleUpdate = (e: React.FormEvent) => {
     e.preventDefault();
-    updateMutation.mutate({ name, description });
+    const metadata = organization?.metadata && typeof organization.metadata === 'object' ? organization.metadata : {};
+    const nextMetadata = { ...metadata };
+    if (paymentMethod) {
+      nextMetadata.paymentMethod = paymentMethod;
+    } else {
+      delete nextMetadata.paymentMethod;
+    }
+    updateMutation.mutate({
+      name,
+      description,
+      metadata: Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+    });
   };
 
   if (!organization) return null;
@@ -129,6 +143,27 @@ export function OrganizationDetailsSheet({
                 disabled={updateMutation.isPending}
                 rows={3}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="detail-payment-method">Payment method</Label>
+              <select
+                id="detail-payment-method"
+                className="h-10 w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                value={paymentMethod}
+                onChange={(event) => setPaymentMethod(event.target.value)}
+                disabled={updateMutation.isPending}
+              >
+                <option value="">Select a method</option>
+                <option value="cash">Cash</option>
+                <option value="bank_transfer">Bank transfer</option>
+                <option value="card">Card</option>
+                <option value="ewallet">E-wallet</option>
+                <option value="qris">QRIS</option>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Change the default payment method shown in Quicklog.
+              </p>
             </div>
 
             <Button type="submit" disabled={updateMutation.isPending} className="w-full">

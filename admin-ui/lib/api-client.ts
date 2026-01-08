@@ -235,7 +235,13 @@ export const apiClient = {
     return this.request(`/admin/api/organizations/${id}`);
   },
 
-  async updateOrganization(id: string, data: { name?: string; slug?: string; description?: string; logo?: string }) {
+  async updateOrganization(id: string, data: {
+    name?: string;
+    slug?: string;
+    description?: string;
+    logo?: string;
+    metadata?: Record<string, any>;
+  }) {
     return this.request(`/admin/api/organizations/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
