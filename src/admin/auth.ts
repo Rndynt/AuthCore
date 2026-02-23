@@ -7,7 +7,7 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { PrismaClient } from '@prisma/client';
-import { admin, organization } from 'better-auth/plugins';
+import { admin } from 'better-auth/plugins';
 import { env } from '../env.js';
 
 const adminDatabaseUrl = new URL(env.DATABASE_URL);
@@ -46,8 +46,7 @@ export const adminAuth = betterAuth({
   
   // Plugins
   plugins: [
-    admin(), // Admin plugin for role-based access
-    organization() // Organization support
+    admin() // Admin plugin for role-based access
   ],
   
   // Custom cookie name to avoid collision with tenant auth
