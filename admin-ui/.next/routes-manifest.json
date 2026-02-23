@@ -70,12 +70,6 @@
       "namedRegex": "^/monitoring(?:/)?$"
     },
     {
-      "page": "/organizations",
-      "regex": "^/organizations(?:/)?$",
-      "routeKeys": {},
-      "namedRegex": "^/organizations(?:/)?$"
-    },
-    {
       "page": "/security",
       "regex": "^/security(?:/)?$",
       "routeKeys": {},

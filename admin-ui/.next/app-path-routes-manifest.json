@@ -1,13 +1,12 @@
 {
   "/_not-found/page": "/_not-found",
   "/(auth)/login/page": "/login",
-  "/(dashboard)/audit/page": "/audit",
-  "/(dashboard)/monitoring/page": "/monitoring",
   "/(dashboard)/dashboard/page": "/dashboard",
-  "/(dashboard)/organizations/page": "/organizations",
-  "/(dashboard)/support-sessions/page": "/support-sessions",
+  "/(dashboard)/page": "/",
   "/(dashboard)/security/page": "/security",
-  "/(dashboard)/users/page": "/users",
+  "/(dashboard)/monitoring/page": "/monitoring",
+  "/(dashboard)/audit/page": "/audit",
   "/(dashboard)/tenants/page": "/tenants",
-  "/(dashboard)/page": "/"
+  "/(dashboard)/support-sessions/page": "/support-sessions",
+  "/(dashboard)/users/page": "/users"
 }
