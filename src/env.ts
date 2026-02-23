@@ -3,8 +3,49 @@ dotenv.config();
 
 import { z } from "zod";
 
+// ============================================
+// Environment Detection (Poin 18)
+// ============================================
+export const isProduction = process.env.NODE_ENV === "production";
+export const isDevelopment = process.env.NODE_ENV !== "production";
+export const isTest = process.env.NODE_ENV === "test";
+
+// ============================================
+// Environment-Specific Defaults (Poin 18)
+// ============================================
+
+// Rate limiting defaults per environment
+export const RATE_LIMITS = {
+  auth: isProduction ? 10 : 100,
+  dev: isProduction ? 30 : 200,
+  admin: isProduction ? 100 : 500,
+  general: isProduction ? 60 : 300,
+  health: isProduction ? 120 : 600,
+};
+
+// Session configuration per environment
+export const SESSION_CONFIG = {
+  maxAge: 604800,
+  cookieSecure: isProduction,
+  sameSite: isProduction ? 'strict' as const : 'lax' as const,
+};
+
+// Connection pool configuration per environment
+export const POOL_CONFIG = {
+  max: isProduction ? 30 : 10,
+  idleTimeoutMillis: isProduction ? 60000 : 30000,
+  connectionTimeoutMillis: isProduction ? 15000 : 10000,
+};
+
+// Tenant connection configuration per environment
+export const TENANT_CONFIG = {
+  maxConnectionsPerTenant: isProduction ? 5 : 3,
+  idleTtlMs: isProduction ? 10 * 60 * 1000 : 5 * 60 * 1000,
+  cleanupIntervalMs: isProduction ? 2 * 60 * 1000 : 60 * 1000,
+};
+
 // Helper to get the development domain for Replit
-const getDevUrl = () => {
+const getDevUrl = (): string => {
   if (process.env.REPLIT_DEV_DOMAIN) {
     return `https://${process.env.REPLIT_DEV_DOMAIN}`;
   }
@@ -12,7 +53,7 @@ const getDevUrl = () => {
 };
 
 // Helper to get trusted origins for development
-const getDefaultTrustedOrigins = () => {
+const getDefaultTrustedOrigins = (): string => {
   if (process.env.REPLIT_DEV_DOMAIN) {
     const origins = [
       `https://${process.env.REPLIT_DEV_DOMAIN}`,
@@ -22,8 +63,6 @@ const getDefaultTrustedOrigins = () => {
       "https://0xauthcorex0.netlify.app"
     ];
     
-    // Add Replit subdomain variants (e.g., ~00-xxx.spock.replit.dev)
-    // Extract the suffix after the last "-00-" to support tilde subdomains
     const match = process.env.REPLIT_DEV_DOMAIN.match(/-00-(.+)$/);
     if (match) {
       origins.push(`https://~00-${match[1]}`);
@@ -36,25 +75,83 @@ const getDefaultTrustedOrigins = () => {
 
 const DEFAULT_DEV_SECRET = "default-development-secret-key-change-in-production-min-24-chars";
 
+// ============================================
+// Environment Schema (Poin 11 - Safe Validation)
+// ============================================
 const envSchema = z.object({
-  PORT: z.coerce.number().default(5000),
+  // Server configuration
+  PORT: z.number().int().positive().default(5000),
+  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  
+  // Auth configuration
   BETTER_AUTH_URL: z.string().url().default(getDevUrl()),
   BETTER_AUTH_SECRET: z.string().min(24).default(DEFAULT_DEV_SECRET),
+  
+  // CORS configuration
   TRUSTED_ORIGINS: z.string().default(getDefaultTrustedOrigins()),
+  
+  // Database configuration
   DATABASE_URL: z.string().url(),
-  ENABLE_DEV_ENDPOINTS: z.string().default("false"),
+  
+  // Dev endpoints configuration
+  ENABLE_DEV_ENDPOINTS: z.enum(["true", "false"]).default("false"),
   DEV_ENDPOINTS_IP_ALLOWLIST: z.string().default(""),
-  DEV_ENDPOINTS_REQUIRE_ADMIN: z.string().default("false"),
+  DEV_ENDPOINTS_REQUIRE_ADMIN: z.enum(["true", "false"]).default("false"),
+  
+  // Auth mode configuration
   AUTH_MODE: z.enum(["single", "multi"]).default("multi"),
-  TENANT_ID: z.string().default("default-tenant"),
-  TENANT_SCHEMA: z.string().default("public"),
-  NESTED_TENANCY_ENABLED: z.string().default("false"),
-  TENANT_CLIENT_IDLE_TTL_MS: z.coerce.number().default(5 * 60 * 1000)
+  TENANT_ID: z.string().min(1).max(63).default("default-tenant"),
+  TENANT_SCHEMA: z.string().min(1).max(63).default("public"),
+  
+  // Multi-tenant configuration
+  NESTED_TENANCY_ENABLED: z.enum(["true", "false"]).default("false"),
+  TENANT_CLIENT_IDLE_TTL_MS: z.number().int().positive().default(TENANT_CONFIG.idleTtlMs),
+  
+  // Rate limiting configuration (overrides)
+  RATE_LIMIT_AUTH: z.number().int().positive().optional(),
+  RATE_LIMIT_DEV: z.number().int().positive().optional(),
+  RATE_LIMIT_ADMIN: z.number().int().positive().optional(),
+  RATE_LIMIT_GENERAL: z.number().int().positive().optional(),
+  
+  // Connection pool configuration (overrides)
+  POOL_MAX: z.number().int().positive().optional(),
+  POOL_IDLE_TIMEOUT_MS: z.number().int().positive().optional(),
 });
+
+// Pre-process environment variables (convert strings to numbers where needed)
+const preprocessEnv = (env: Record<string, string | undefined>) => {
+  const result: Record<string, string | number | undefined> = {};
+  
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) continue;
+    
+    // Numeric fields
+    if (['PORT', 'TENANT_CLIENT_IDLE_TTL_MS', 'RATE_LIMIT_AUTH', 'RATE_LIMIT_DEV', 
+         'RATE_LIMIT_ADMIN', 'RATE_LIMIT_GENERAL', 'POOL_MAX', 'POOL_IDLE_TIMEOUT_MS'].includes(key)) {
+      const num = parseInt(value, 10);
+      if (!isNaN(num)) {
+        result[key] = num;
+      }
+    } else {
+      result[key] = value;
+    }
+  }
+  
+  return result;
+};
 
 type Env = z.infer<typeof envSchema>;
 
-const rawEnv = envSchema.parse(process.env);
+// Parse with detailed error handling
+const parseResult = envSchema.safeParse(preprocessEnv(process.env));
+if (!parseResult.success) {
+  const errors = parseResult.error.errors.map(e => 
+    `  - ${e.path.join('.')}: ${e.message}`
+  ).join('\n');
+  throw new Error(`Environment validation failed:\n${errors}`);
+}
+
+const rawEnv = parseResult.data;
 
 function sanitizeBetterAuthUrl(rawUrl: string): string {
   try {
@@ -89,11 +186,10 @@ if (process.env.NODE_ENV === "production" && env.BETTER_AUTH_SECRET === DEFAULT_
   );
 }
 
-function normalizeOrigin(raw: string) {
+function normalizeOrigin(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
-  // Fix common mistakes like "http//" by ensuring the colon is present.
   const withProtocolSeparator = trimmed.replace(/^(https?)(\/\/)/i, "$1://");
 
   try {
@@ -107,7 +203,7 @@ function normalizeOrigin(raw: string) {
   }
 }
 
-function normalizeTrustedOrigin(raw: string) {
+function normalizeTrustedOrigin(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
@@ -138,7 +234,7 @@ function normalizeTrustedOrigin(raw: string) {
   return normalizeOrigin(withProtocolSeparator);
 }
 
-function normalizePossibleOrigin(value?: string | null) {
+function normalizePossibleOrigin(value?: string | null): string | null {
   if (!value) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -150,22 +246,22 @@ function normalizePossibleOrigin(value?: string | null) {
   return normalizeOrigin(trimmed);
 }
 
-const parsedOrigins = env.TRUSTED_ORIGINS
+const parsedOrigins: string[] = env.TRUSTED_ORIGINS
   .split(",")
   .map(normalizeTrustedOrigin)
-  .filter((origin): origin is string => Boolean(origin));
+  .filter((origin): origin is string => origin !== null);
 
-const netlifyEnvOrigins = [
+const netlifyEnvOrigins: string[] = [
   normalizePossibleOrigin(process.env.URL),
   normalizePossibleOrigin(process.env.DEPLOY_URL),
   normalizePossibleOrigin(process.env.DEPLOY_PRIME_URL),
   normalizePossibleOrigin(process.env.NETLIFY_CUSTOM_DOMAIN)
-].filter((origin): origin is string => Boolean(origin));
+].filter((origin): origin is string => origin !== null);
 
-const derivedOrigins = [
+const derivedOrigins: string[] = [
   normalizePossibleOrigin(env.BETTER_AUTH_URL),
   ...netlifyEnvOrigins
-].filter((origin): origin is string => Boolean(origin));
+].filter((origin): origin is string => origin !== null);
 
 const allTrustedOrigins = [...parsedOrigins, ...derivedOrigins];
 
@@ -175,13 +271,13 @@ if (allTrustedOrigins.length === 0) {
   );
 }
 
-export const trustedOrigins = Array.from(new Set(allTrustedOrigins));
+export const trustedOrigins: string[] = Array.from(new Set(allTrustedOrigins));
 
 export const devEnabled = env.ENABLE_DEV_ENDPOINTS === "true";
 
 export const nestedTenancyEnabled = env.NESTED_TENANCY_ENABLED === "true";
 
-export function isOriginTrusted(origin: string) {
+export function isOriginTrusted(origin: string): boolean {
   const normalized = normalizeOrigin(origin);
   if (!normalized) {
     return false;

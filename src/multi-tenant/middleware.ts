@@ -1,6 +1,10 @@
 /**
  * Tenant Middleware for Fastify
  * Extracts tenant identifier from request and adds to request context
+ * 
+ * IMPROVEMENTS (Poin 8):
+ * - Added TenantResolvedRequest with guaranteed properties
+ * - Type-safe tenant access after middleware
  */
 
 import { FastifyRequest, FastifyReply } from 'fastify';
@@ -8,9 +12,41 @@ import { tenantManager } from './connection-manager.js';
 
 const TENANT_IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 
+/**
+ * Base tenant request with optional properties (before middleware)
+ */
 export interface TenantRequest extends FastifyRequest {
   tenantId?: string;
   tenantSlug?: string;
+}
+
+/**
+ * Resolved tenant request with guaranteed properties (after middleware)
+ * Use this type in handlers that require tenant middleware
+ */
+export interface TenantResolvedRequest extends FastifyRequest {
+  tenantId: string;  // Required - guaranteed by middleware
+  tenantSlug: string; // Required - guaranteed by middleware
+}
+
+/**
+ * Type guard to check if request has resolved tenant
+ */
+export function isTenantResolved(request: TenantRequest): request is TenantResolvedRequest {
+  return typeof request.tenantId === 'string' && typeof request.tenantSlug === 'string';
+}
+
+/**
+ * Get resolved tenant from request (throws if not resolved)
+ */
+export function getResolvedTenant(request: TenantRequest): { tenantId: string; tenantSlug: string } {
+  if (!isTenantResolved(request)) {
+    throw new Error('Tenant not resolved. Ensure tenantMiddleware is applied.');
+  }
+  return {
+    tenantId: request.tenantId,
+    tenantSlug: request.tenantSlug
+  };
 }
 
 /**

@@ -1,4 +1,4 @@
-// File: /home/runner/workspace/admin-ui/app/(dashboard)/security/page.tsx
+// File: /home/workspace/Realmio/admin-ui/app/(dashboard)/security/page.tsx
 import * as entry from '../../../../../app/(dashboard)/security/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

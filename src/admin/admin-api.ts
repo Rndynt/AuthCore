@@ -63,6 +63,18 @@ export interface AdminApiTenantService {
     details: unknown,
     ipAddress?: string
   ): Promise<void>;
+  // Organization methods (optional for backward compatibility)
+  listOrganizations?(): Promise<unknown[]>;
+  createOrganization?(input: unknown): Promise<unknown>;
+  getOrganization?(id: string): Promise<unknown | null>;
+  updateOrganization?(id: string, input: unknown): Promise<unknown>;
+  deleteOrganization?(id: string): Promise<void>;
+  addOrganizationMember?(orgId: string, userId: string, role: string): Promise<unknown>;
+  updateOrganizationMember?(orgId: string, memberId: string, role: string): Promise<unknown>;
+  removeOrganizationMember?(orgId: string, memberId: string): Promise<void>;
+  getOrganizationInvitations?(orgId: string): Promise<unknown[]>;
+  sendOrganizationInvitation?(orgId: string, email: string, role: string): Promise<unknown>;
+  revokeOrganizationInvitation?(orgId: string, invitationId: string): Promise<void>;
 }
 
 export interface AdminApiDependencies {
