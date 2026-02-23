@@ -1,65 +1,17 @@
-const envApiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '');
-const envAuthService = process.env.NEXT_PUBLIC_AUTH_SERVICE_URL?.replace(/\/$/, '');
-const envAdminFunctionPath = process.env.NEXT_PUBLIC_ADMIN_FUNCTION_PATH?.replace(/\/$/, '');
+const isBrowser = typeof window !== 'undefined';
 
-const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(value);
-const withLeadingSlash = (value: string) => (value.startsWith('/') ? value : `/${value}`);
-const mapNetlifyFunctionsPath = (value: string) =>
-  value === '/.netlify/functions' ? '/.netlify/functions/admin-auth' : value;
-
-const defaultFunctionPath = '/.netlify/functions/admin-auth';
-
-const adminFunctionPath = envAdminFunctionPath
-  ? isAbsoluteUrl(envAdminFunctionPath)
-    ? envAdminFunctionPath
-    : mapNetlifyFunctionsPath(withLeadingSlash(envAdminFunctionPath))
-  : defaultFunctionPath;
-
-const relativeApiPath = envApiUrl && !isAbsoluteUrl(envApiUrl)
-  ? mapNetlifyFunctionsPath(withLeadingSlash(envApiUrl))
-  : undefined;
-
-const absoluteEnvBase = (() => {
-  if (envApiUrl && isAbsoluteUrl(envApiUrl)) {
-    return envApiUrl;
-  }
-  if (isAbsoluteUrl(adminFunctionPath)) {
-    return adminFunctionPath;
-  }
-  if (envAuthService && isAbsoluteUrl(envAuthService)) {
-    return `${envAuthService}${adminFunctionPath}`;
-  }
-  return undefined;
-})();
-
-let cachedBase: string | undefined = absoluteEnvBase;
-
+// Untuk production di Zo Computer, gunakan origin saat ini
+// Untuk development, gunakan localhost
 const resolveApiBase = (): string => {
-  if (cachedBase) return cachedBase;
-
-  if (typeof window !== 'undefined') {
-    const origin = window.location.origin.replace(/\/$/, '');
-    if (isAbsoluteUrl(adminFunctionPath)) {
-      cachedBase = adminFunctionPath;
-      return cachedBase;
-    }
-    const relative = relativeApiPath ?? adminFunctionPath;
-    cachedBase = `${origin}${relative}`;
-    return cachedBase;
+  if (isBrowser) {
+    // Selalu gunakan origin saat ini (bekerja di Zo Computer dan localhost)
+    return window.location.origin;
   }
-
-  throw new Error(
-    'Unable to resolve API base URL. Set NEXT_PUBLIC_API_URL, NEXT_PUBLIC_ADMIN_FUNCTION_PATH, or NEXT_PUBLIC_AUTH_SERVICE_URL to an absolute URL.'
-  );
+  // SSR: gunakan env atau default
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 };
 
-export const apiBaseUrl = (() => {
-  try {
-    return resolveApiBase();
-  } catch {
-    return '';
-  }
-})();
+export const apiBaseUrl = resolveApiBase();
 
 export const apiClient = {
   async request(endpoint: string, options?: RequestInit) {
@@ -72,7 +24,10 @@ export const apiClient = {
         ...options?.headers,
       },
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `HTTP ${res.status}`);
+    }
     return res.json();
   },
   
@@ -84,9 +39,7 @@ export const apiClient = {
   },
   
   async logout() {
-    return this.request('/admin/auth/sign-out', {
-      method: 'POST',
-    });
+    return this.request('/admin/auth/sign-out', { method: 'POST' });
   },
   
   async getSession() {
@@ -109,21 +62,15 @@ export const apiClient = {
   },
   
   async suspendTenant(id: string) {
-    return this.request(`/admin/api/tenants/${id}/suspend`, {
-      method: 'POST',
-    });
+    return this.request(`/admin/api/tenants/${id}/suspend`, { method: 'POST' });
   },
   
   async activateTenant(id: string) {
-    return this.request(`/admin/api/tenants/${id}/activate`, {
-      method: 'POST',
-    });
+    return this.request(`/admin/api/tenants/${id}/activate`, { method: 'POST' });
   },
   
   async deleteTenant(id: string) {
-    return this.request(`/admin/api/tenants/${id}`, {
-      method: 'DELETE',
-    });
+    return this.request(`/admin/api/tenants/${id}`, { method: 'DELETE' });
   },
   
   async getMetrics() {
@@ -144,9 +91,7 @@ export const apiClient = {
   },
 
   async revokeUserSessions(tenantId: string, userId: string) {
-    return this.request(`/admin/api/tenants/${tenantId}/users/${userId}/revoke-sessions`, {
-      method: 'POST',
-    });
+    return this.request(`/admin/api/tenants/${tenantId}/users/${userId}/revoke-sessions`, { method: 'POST' });
   },
 
   async createSupportSession(tenantId: string, userId: string, minutes?: number) {
@@ -161,25 +106,14 @@ export const apiClient = {
   },
 
   async revokeSupportSession(tenantId: string, sessionId: string) {
-    return this.request(`/admin/api/support-sessions/${tenantId}/${sessionId}`, {
-      method: 'DELETE',
-    });
+    return this.request(`/admin/api/support-sessions/${tenantId}/${sessionId}`, { method: 'DELETE' });
   },
 
   async getSecuritySettings() {
     return this.request('/admin/api/security/settings');
   },
 
-  async updateSecuritySettings(
-    payload: Partial<{
-      trustedOrigins: string[];
-      enableDevEndpoints: boolean;
-      apiKeyRotationDays: number | null;
-      adminIpAllowlist: string[];
-      enforceAdminMfa: boolean;
-      readOnlyMode: boolean;
-    }>
-  ) {
+  async updateSecuritySettings(payload: Record<string, any>) {
     return this.request('/admin/api/security/settings', {
       method: 'PUT',
       body: JSON.stringify(payload),
@@ -193,29 +127,9 @@ export const apiClient = {
     });
   },
 
-  async getAuditLogs(params: {
-    limit?: number;
-    offset?: number;
-    action?: string;
-    targetType?: string;
-    targetId?: string;
-    adminUserId?: string;
-    from?: string;
-    to?: string;
-    search?: string;
-    tenantStatus?: string;
-  } = {}) {
+  async getAuditLogs(params: Record<string, any> = {}) {
     const searchParams = new URLSearchParams();
-    if (typeof params.limit === 'number') searchParams.set('limit', String(params.limit));
-    if (typeof params.offset === 'number') searchParams.set('offset', String(params.offset));
-    if (params.action) searchParams.set('action', params.action);
-    if (params.targetType) searchParams.set('targetType', params.targetType);
-    if (params.targetId) searchParams.set('targetId', params.targetId);
-    if (params.adminUserId) searchParams.set('adminUserId', params.adminUserId);
-    if (params.from) searchParams.set('from', params.from);
-    if (params.to) searchParams.set('to', params.to);
-    if (params.search) searchParams.set('search', params.search);
-    if (params.tenantStatus) searchParams.set('tenantStatus', params.tenantStatus);
+    Object.entries(params).forEach(([k, v]) => { if (v) searchParams.set(k, String(v)); });
     const query = searchParams.toString();
     return this.request(`/admin/api/audit-logs${query ? `?${query}` : ''}`);
   },
@@ -235,7 +149,7 @@ export const apiClient = {
     return this.request(`/admin/api/organizations/${id}`);
   },
 
-  async updateOrganization(id: string, data: { name?: string; slug?: string; description?: string; logo?: string }) {
+  async updateOrganization(id: string, data: Record<string, any>) {
     return this.request(`/admin/api/organizations/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -243,9 +157,7 @@ export const apiClient = {
   },
 
   async deleteOrganization(id: string) {
-    return this.request(`/admin/api/organizations/${id}`, {
-      method: 'DELETE',
-    });
+    return this.request(`/admin/api/organizations/${id}`, { method: 'DELETE' });
   },
 
   async addOrganizationMember(orgId: string, userId: string, role: string = 'member') {
@@ -263,9 +175,7 @@ export const apiClient = {
   },
 
   async removeOrganizationMember(orgId: string, memberId: string) {
-    return this.request(`/admin/api/organizations/${orgId}/members/${memberId}`, {
-      method: 'DELETE',
-    });
+    return this.request(`/admin/api/organizations/${orgId}/members/${memberId}`, { method: 'DELETE' });
   },
 
   async sendOrganizationInvitation(orgId: string, email: string, role: string = 'member') {
@@ -280,8 +190,6 @@ export const apiClient = {
   },
 
   async revokeOrganizationInvitation(orgId: string, invitationId: string) {
-    return this.request(`/admin/api/organizations/${orgId}/invitations/${invitationId}`, {
-      method: 'DELETE',
-    });
+    return this.request(`/admin/api/organizations/${orgId}/invitations/${invitationId}`, { method: 'DELETE' });
   },
 };

@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { readFile } from "fs/promises";
 import { createRequire } from "node:module";
+import { randomUUID } from "crypto";
 import { auth } from "./auth.js";
 import { env, trustedOrigins, devEnabled, isOriginTrusted } from "./env.js";
 import { registerDevEndpoints } from "./dev.js";
@@ -21,11 +22,20 @@ import { adminSessionMiddleware } from "./admin/middleware.js";
 import { getRequestOrigin } from "./utils/http.js";
 import requestLogger from "./utils/request-logger.js";
 import { getRequestMetricsSnapshot } from "./utils/request-metrics.js";
+import { registerRateLimiting, createAuthRateLimit, createGeneralRateLimit, createHealthRateLimit } from "./utils/rate-limit.js";
+import { 
+  AppError, 
+  isAppError, 
+  handleErrorResponse,
+  InternalServerError,
+  ValidationError 
+} from "./utils/errors.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const isDev = process.env.NODE_ENV !== "production";
+const isProduction = process.env.NODE_ENV === "production";
 
 const require = createRequire(import.meta.url);
 
@@ -52,7 +62,14 @@ const prettyTransport = (() => {
 
 const app = Fastify({
   logger: prettyTransport ? { transport: prettyTransport } : true,
-  trustProxy: true
+  trustProxy: true,
+  genReqId: () => crypto.randomUUID()  // Enable request ID generation (Poin 14)
+});
+
+// Add request ID to all responses (Poin 14)
+app.addHook('onRequest', async (request, reply) => {
+  const requestId = request.id || randomUUID();
+  reply.header('X-Request-Id', requestId);
 });
 
 if (isDev && !prettyTransport) {
@@ -63,6 +80,11 @@ if (isDev && !prettyTransport) {
 
 app.register(requestLogger);
 
+// Register rate limiting
+registerRateLimiting(app).catch(err => {
+  console.error('Failed to register rate limiting:', err);
+});
+
 app.register(cors, {
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
@@ -71,12 +93,28 @@ app.register(cors, {
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-api-key", "X-Tenant-Id"]
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-api-key", "X-Tenant-Id", "X-Request-Id"]
 });
 
-app.setErrorHandler((err, _req, reply) => {
-  app.log.error({ err }, 'unhandled-error');
-  reply.status(err.statusCode ?? 500).send({ error: 'internal_error' });
+// Global Error Handler with centralized error handling (Poin 4)
+app.setErrorHandler((err, req, reply) => {
+  if (isAppError(err)) {
+    handleErrorResponse(err, reply);
+    return;
+  }
+  
+  // Log unexpected errors
+  app.log.error({ err, requestId: req.id }, 'unhandled-error');
+  
+  // Use centralized error response
+  handleErrorResponse(
+    new InternalServerError(
+      process.env.NODE_ENV !== 'production' && err instanceof Error 
+        ? err.message 
+        : 'An unexpected error occurred'
+    ),
+    reply
+  );
 });
 
 // Load configuration
@@ -93,9 +131,11 @@ let subTenantManager: SubTenantManager | null = null;
 function registerRoutes() {
   if (authConfig.mode === 'single') {
     // Single-tenant mode: direct auth routes without tenant middleware
+    // Apply rate limiting to auth endpoints
     app.route({
       method: ["GET", "POST"],
       url: "/api/auth/*",
+      config: { rateLimit: createAuthRateLimit() },
       handler: async (request, reply) => {
         const base = getRequestOrigin(request);
         const url = new URL(request.url, base);
@@ -137,7 +177,7 @@ function registerRoutes() {
       options?: { stripTenantPrefix?: boolean }
     ) => {
       const tenantId = request.tenantId!;
-      const tenantAuth = getTenantAuth(tenantId);
+      const tenantAuth = await getTenantAuth(tenantId);
 
       const base = getRequestOrigin(request);
       const url = new URL(request.url, base);
@@ -235,7 +275,7 @@ function registerRoutes() {
       onRequest: tenantMiddleware
     }, async (req: TenantRequest, reply) => {
       const tenantId = req.tenantId!;
-      const tenantAuth = getTenantAuth(tenantId);
+      const tenantAuth = await getTenantAuth(tenantId);
 
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers)) {
@@ -352,8 +392,10 @@ function registerRoutes() {
     }
   });
 
-  // Health check route (all modes)
-  app.get("/healthz", async (req, reply) => {
+  // Health check route (all modes) - with rate limiting
+  app.get("/healthz", {
+    config: { rateLimit: createHealthRateLimit() }
+  }, async (req, reply) => {
     reply.send({ 
       ok: true,
       mode: authConfig.mode,

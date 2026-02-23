@@ -1,6 +1,13 @@
 /**
  * Tenant Connection Manager
  * Manages Prisma client connections per tenant schema
+ * 
+ * IMPROVEMENTS (Poin 2):
+ * - Added max connections limit to prevent memory leak
+ * - Implemented LRU (Least Recently Used) eviction
+ * - Proper cleanup on disconnect failure
+ * - Connection pool monitoring
+ * - Graceful shutdown with timeout
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -14,7 +21,25 @@ interface ConnectionMetadata {
   createdAt: Date;
   lastUsedAt: Date;
   totalRequests: number;
+  lastError?: string;
+  disconnectAttempts: number;
 }
+
+interface ConnectionManagerConfig {
+  maxConnections: number;
+  idleTtlMs: number;
+  cleanupIntervalMs: number;
+  maxDisconnectAttempts: number;
+  shutdownTimeoutMs: number;
+}
+
+const DEFAULT_CONFIG: ConnectionManagerConfig = {
+  maxConnections: 50, // Maximum Prisma clients
+  idleTtlMs: env.TENANT_CLIENT_IDLE_TTL_MS || 5 * 60 * 1000, // 5 minutes
+  cleanupIntervalMs: 60 * 1000, // 1 minute
+  maxDisconnectAttempts: 3,
+  shutdownTimeoutMs: 30 * 1000, // 30 seconds
+};
 
 export class TenantConnectionManager {
   private connections = new Map<string, PrismaClient>();
@@ -28,9 +53,22 @@ export class TenantConnectionManager {
   private initialized = false;
   private pool: PoolType;
   private cleanupInterval: NodeJS.Timeout | null = null;
-  private readonly idleTtlMs = env.TENANT_CLIENT_IDLE_TTL_MS;
+  private readonly config: ConnectionManagerConfig;
+  
+  // LRU tracking
+  private lruOrder: string[] = [];
+  
+  // Monitoring
+  private stats = {
+    totalConnectionsCreated: 0,
+    totalConnectionsEvicted: 0,
+    totalDisconnectErrors: 0,
+    lastCleanupAt: new Date(),
+  };
 
-  constructor() {
+  constructor(config: Partial<ConnectionManagerConfig> = {}) {
+    this.config = { ...DEFAULT_CONFIG, ...config };
+    
     this.pool = new Pool({
       connectionString: env.DATABASE_URL,
       max: 20,
@@ -83,6 +121,7 @@ export class TenantConnectionManager {
 
   /**
    * Get Prisma client for specific tenant
+   * Implements LRU eviction when max connections reached
    */
   getClient(tenantId: string): PrismaClient {
     if (!this.initialized) {
@@ -104,10 +143,22 @@ export class TenantConnectionManager {
     const canonicalId = tenant.id;
 
     let client = this.connections.get(canonicalId);
-    if (!client) {
-      // Create new connection with tenant-specific schema
-      const schemaUrl = this.buildSchemaUrl(tenant.schema_name);
+    if (client) {
+      // Update LRU order
+      this.updateLRU(canonicalId);
+      this.touchConnectionMetadata(canonicalId);
+      return client;
+    }
 
+    // Check if we need to evict connections
+    if (this.connections.size >= this.config.maxConnections) {
+      this.evictLRUConnections();
+    }
+
+    // Create new connection with tenant-specific schema
+    const schemaUrl = this.buildSchemaUrl(tenant.schema_name);
+
+    try {
       client = new PrismaClient({
         datasources: {
           db: {
@@ -123,15 +174,94 @@ export class TenantConnectionManager {
       this.connectionMetadata.set(canonicalId, {
         createdAt: new Date(),
         lastUsedAt: new Date(),
-        totalRequests: 0
+        totalRequests: 0,
+        disconnectAttempts: 0
       });
 
-      console.log(`✅ Created Prisma client for tenant: ${canonicalId} (${tenant.schema_name})`);
+      // Add to LRU
+      this.lruOrder.push(canonicalId);
+      
+      this.stats.totalConnectionsCreated++;
+
+      console.log(`✅ Created Prisma client for tenant: ${canonicalId} (${tenant.schema_name}) [${this.connections.size}/${this.config.maxConnections}]`);
+    } catch (error) {
+      console.error(`❌ Failed to create Prisma client for tenant ${canonicalId}:`, error);
+      throw new Error(`Failed to create database connection for tenant: ${tenantId}`);
     }
 
-    this.touchConnectionMetadata(canonicalId);
-
     return client;
+  }
+
+  /**
+   * Update LRU order - move to end (most recently used)
+   */
+  private updateLRU(tenantId: string): void {
+    const index = this.lruOrder.indexOf(tenantId);
+    if (index > -1) {
+      this.lruOrder.splice(index, 1);
+      this.lruOrder.push(tenantId);
+    }
+  }
+
+  /**
+   * Evict LRU connections to make room for new ones
+   */
+  private evictLRUConnections(): void {
+    const evictCount = Math.max(1, Math.floor(this.config.maxConnections * 0.1)); // Evict 10%
+    let evicted = 0;
+
+    while (this.lruOrder.length > 0 && evicted < evictCount) {
+      const oldestTenantId = this.lruOrder.shift();
+      if (!oldestTenantId) break;
+
+      const client = this.connections.get(oldestTenantId);
+      if (client) {
+        // Attempt graceful disconnect (non-blocking)
+        this.gracefulDisconnect(oldestTenantId, client).catch(err => {
+          console.error(`⚠️  Background disconnect error for ${oldestTenantId}:`, err);
+        });
+
+        this.connections.delete(oldestTenantId);
+        this.connectionMetadata.delete(oldestTenantId);
+        evicted++;
+        this.stats.totalConnectionsEvicted++;
+        
+        console.log(`🧹 Evicted LRU connection for tenant: ${oldestTenantId}`);
+      }
+    }
+
+    if (evicted > 0) {
+      console.log(`📊 Evicted ${evicted} LRU connections. Active: ${this.connections.size}/${this.config.maxConnections}`);
+    }
+  }
+
+  /**
+   * Graceful disconnect with retry logic
+   */
+  private async gracefulDisconnect(tenantId: string, client: PrismaClient): Promise<void> {
+    const meta = this.connectionMetadata.get(tenantId);
+    const attempts = meta?.disconnectAttempts || 0;
+
+    if (attempts >= this.config.maxDisconnectAttempts) {
+      console.warn(`⚠️  Max disconnect attempts reached for ${tenantId}, forcing removal`);
+      this.stats.totalDisconnectErrors++;
+      return;
+    }
+
+    try {
+      await client.$disconnect();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`⚠️  Disconnect attempt ${attempts + 1} failed for ${tenantId}:`, errorMessage);
+      
+      if (meta) {
+        meta.disconnectAttempts = attempts + 1;
+        meta.lastError = errorMessage;
+      }
+      
+      this.stats.totalDisconnectErrors++;
+      throw error;
+    }
   }
 
   /**
@@ -204,12 +334,19 @@ export class TenantConnectionManager {
       const client = this.connections.get(key);
       if (client) {
         try {
-          await client.$disconnect();
+          await this.gracefulDisconnect(key, client);
         } catch (error) {
           console.error(`⚠️  Error disconnecting tenant client ${key}:`, error);
         }
         this.connections.delete(key);
         this.connectionMetadata.delete(key);
+        
+        // Remove from LRU
+        const lruIndex = this.lruOrder.indexOf(key);
+        if (lruIndex > -1) {
+          this.lruOrder.splice(lruIndex, 1);
+        }
+        
         console.log(`🔌 Disconnected tenant: ${key}`);
       }
     } else {
@@ -232,6 +369,7 @@ export class TenantConnectionManager {
     this.registry.schemaToTenantId.clear();
     this.registry.idLookup.clear();
     this.connectionMetadata.clear();
+    this.lruOrder = [];
 
     // Disconnect all existing connections
     await this.disconnect();
@@ -253,7 +391,7 @@ export class TenantConnectionManager {
       this.pruneIdleConnections().catch(error => {
         console.error('⚠️  Failed to prune idle tenant connections:', error);
       });
-    }, this.idleTtlMs);
+    }, this.config.cleanupIntervalMs);
 
     this.cleanupInterval.unref?.();
   }
@@ -269,11 +407,17 @@ export class TenantConnectionManager {
   private async pruneIdleConnections(force = false): Promise<number> {
     const now = Date.now();
     let pruned = 0;
+    
+    // Get list of tenants to prune (avoid modifying during iteration)
+    const toPrune: string[] = [];
+    
     for (const [tenantId, meta] of this.connectionMetadata.entries()) {
-      if (!force && now - meta.lastUsedAt.getTime() < this.idleTtlMs) {
-        continue;
+      if (force || now - meta.lastUsedAt.getTime() >= this.config.idleTtlMs) {
+        toPrune.push(tenantId);
       }
+    }
 
+    for (const tenantId of toPrune) {
       const client = this.connections.get(tenantId);
       if (!client) {
         this.connectionMetadata.delete(tenantId);
@@ -281,16 +425,27 @@ export class TenantConnectionManager {
       }
 
       try {
-        await client.$disconnect();
+        await this.gracefulDisconnect(tenantId, client);
         console.log(`🧹 Closed idle Prisma client for tenant: ${tenantId}`);
         pruned += 1;
       } catch (error) {
         console.error(`⚠️  Failed to close Prisma client for tenant ${tenantId}:`, error);
+        // Still remove from tracking even if disconnect failed
       }
 
       this.connections.delete(tenantId);
       this.connectionMetadata.delete(tenantId);
+      
+      // Remove from LRU
+      const lruIndex = this.lruOrder.indexOf(tenantId);
+      if (lruIndex > -1) {
+        this.lruOrder.splice(lruIndex, 1);
+      }
     }
+    
+    this.stats.lastCleanupAt = new Date();
+    this.stats.totalConnectionsEvicted += pruned;
+    
     return pruned;
   }
 
@@ -308,7 +463,7 @@ export class TenantConnectionManager {
   }
 
   /**
-   * Get connection pool stats
+   * Get connection pool stats (enhanced with monitoring data)
    */
   getStats() {
     const tenants = Array.from(this.registry.tenants.values());
@@ -319,6 +474,8 @@ export class TenantConnectionManager {
       totalTenants: tenants.length,
       activeTenants: activeTenants.length,
       activeConnections: this.connections.size,
+      maxConnections: this.config.maxConnections,
+      connectionUtilization: (this.connections.size / this.config.maxConnections * 100).toFixed(1) + '%',
       tenants: tenants.map(t => ({
         id: t.id,
         name: t.name,
@@ -331,14 +488,62 @@ export class TenantConnectionManager {
         createdAt: meta.createdAt.toISOString(),
         lastUsedAt: meta.lastUsedAt.toISOString(),
         totalRequests: meta.totalRequests,
-        idleMilliseconds: now - meta.lastUsedAt.getTime()
+        idleMilliseconds: now - meta.lastUsedAt.getTime(),
+        disconnectAttempts: meta.disconnectAttempts,
+        lastError: meta.lastError
       })),
       poolStats: {
         totalCount: this.pool.totalCount,
         idleCount: this.pool.idleCount,
         waitingCount: this.pool.waitingCount
       },
-      idleConnectionTtlMs: this.idleTtlMs
+      monitoring: {
+        ...this.stats,
+        lruOrderSize: this.lruOrder.length,
+        config: {
+          maxConnections: this.config.maxConnections,
+          idleTtlMs: this.config.idleTtlMs,
+          cleanupIntervalMs: this.config.cleanupIntervalMs,
+          shutdownTimeoutMs: this.config.shutdownTimeoutMs
+        }
+      }
+    };
+  }
+
+  /**
+   * Get health status for monitoring
+   */
+  getHealthStatus(): {
+    healthy: boolean;
+    issues: string[];
+    metrics: Record<string, number>;
+  } {
+    const issues: string[] = [];
+    const metrics: Record<string, number> = {
+      activeConnections: this.connections.size,
+      maxConnections: this.config.maxConnections,
+      utilizationPercent: (this.connections.size / this.config.maxConnections) * 100,
+      totalTenants: this.registry.tenants.size,
+      disconnectErrors: this.stats.totalDisconnectErrors,
+    };
+
+    // Check for issues
+    if (this.connections.size >= this.config.maxConnections * 0.9) {
+      issues.push('Connection pool near capacity (>90%)');
+    }
+    
+    if (this.stats.totalDisconnectErrors > 10) {
+      issues.push('High disconnect error count');
+    }
+    
+    if (this.pool.waitingCount > 5) {
+      issues.push('Connection pool has waiting requests');
+    }
+
+    return {
+      healthy: issues.length === 0,
+      issues,
+      metrics
     };
   }
 
@@ -379,7 +584,8 @@ export class TenantConnectionManager {
       this.connectionMetadata.set(tenantId, {
         createdAt: new Date(),
         lastUsedAt: new Date(),
-        totalRequests: 1
+        totalRequests: 1,
+        disconnectAttempts: 0
       });
       return;
     }
@@ -407,16 +613,41 @@ export class TenantConnectionManager {
   }
 
   /**
-   * Cleanup on shutdown
+   * Cleanup on shutdown with timeout
    */
   async shutdown(): Promise<void> {
     console.log('🛑 Shutting down tenant connection manager...');
+    
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
     }
-    await this.disconnect();
-    await this.pool.end();
+
+    // Create shutdown promise with timeout
+    const shutdownPromise = this.disconnect();
+    const timeoutPromise = new Promise<void>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Shutdown timeout exceeded'));
+      }, this.config.shutdownTimeoutMs);
+    });
+
+    try {
+      await Promise.race([shutdownPromise, timeoutPromise]);
+      console.log('✅ All connections closed gracefully');
+    } catch (error) {
+      console.error('⚠️  Shutdown timed out, forcing exit');
+      // Force cleanup
+      this.connections.clear();
+      this.connectionMetadata.clear();
+      this.lruOrder = [];
+    }
+
+    try {
+      await this.pool.end();
+    } catch (error) {
+      console.error('⚠️  Error closing pool:', error);
+    }
+
     this.initialized = false;
     console.log('✅ Tenant connection manager shut down');
   }
@@ -425,13 +656,26 @@ export class TenantConnectionManager {
 // Singleton instance
 export const tenantManager = new TenantConnectionManager();
 
-// Graceful shutdown handler
-process.on('SIGTERM', async () => {
-  await tenantManager.shutdown();
-  process.exit(0);
-});
+// Graceful shutdown handler with timeout
+let isShuttingDown = false;
 
-process.on('SIGINT', async () => {
-  await tenantManager.shutdown();
-  process.exit(0);
-});
+const handleShutdown = async (signal: string) => {
+  if (isShuttingDown) {
+    console.log(`⚠️  Already shutting down, ignoring ${signal}`);
+    return;
+  }
+  isShuttingDown = true;
+  
+  console.log(`\n🛑 Received ${signal}, starting graceful shutdown...`);
+  
+  try {
+    await tenantManager.shutdown();
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error);
+    process.exit(1);
+  }
+};
+
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+process.on('SIGINT', () => handleShutdown('SIGINT'));

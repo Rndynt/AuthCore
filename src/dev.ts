@@ -1,3 +1,14 @@
+/**
+ * Dev Endpoints
+ * 
+ * Development-only endpoints for testing and debugging.
+ * 
+ * IMPROVEMENTS (Poin 4):
+ * - Centralized error handling with custom Error classes
+ * - Consistent error responses
+ * - Proper stack trace preservation
+ */
+
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import ipaddr from "ipaddr.js";
 import { auth } from "./auth.js";
@@ -5,6 +16,19 @@ import { devEnabled, env } from "./env.js";
 import type { AuthConfig } from "./config/auth-mode.js";
 import { getTenantAuth } from "./multi-tenant/auth-factory.js";
 import { tenantManager } from "./multi-tenant/connection-manager.js";
+import {
+  AppError,
+  AuthenticationError,
+  AuthorizationError,
+  ValidationError,
+  NotFoundError,
+  InternalServerError,
+  TenantNotFoundError,
+  TenantSuspendedError,
+  InsufficientRoleError,
+  handleErrorResponse,
+  isAppError,
+} from "./utils/errors.js";
 
 // Auth mode detection
 type AuthMode = "cookie" | "apiKey" | "bearer";
@@ -20,6 +44,8 @@ interface AuthContext {
 type DevRequest = FastifyRequest & { devAuthContext?: AuthContext };
 
 const devEndpointsRequireAdmin = env.DEV_ENDPOINTS_REQUIRE_ADMIN === "true";
+const isProduction = process.env.NODE_ENV === "production";
+
 type AllowlistEntry =
   | { kind: "ip"; ip: ipaddr.IPv4 | ipaddr.IPv6 }
   | { kind: "cidr"; cidr: [ipaddr.IPv4 | ipaddr.IPv6, number] };
@@ -83,8 +109,13 @@ function normalizeIp(ip: string): ipaddr.IPv4 | ipaddr.IPv6 | null {
   }
 
   const parsed = ipaddr.parse(ip);
-  if (parsed.kind() === "ipv6" && parsed.isIPv4MappedAddress()) {
-    return parsed.toIPv4Address();
+  
+  // Check if IPv6 and has IPv4 mapped address
+  if (parsed.kind() === "ipv6") {
+    const ipv6 = parsed as ipaddr.IPv6;
+    if (ipv6.isIPv4MappedAddress()) {
+      return ipv6.toIPv4Address();
+    }
   }
 
   return parsed;
@@ -129,9 +160,13 @@ function isIpAllowed(
   });
 }
 
-function enforceDevEndpointIpAllowlist(request: FastifyRequest) {
+/**
+ * Enforce IP allowlist for dev endpoints
+ * @throws AuthorizationError if IP is not allowed
+ */
+function enforceDevEndpointIpAllowlist(request: FastifyRequest): void {
   if (devEndpointsIpAllowlistInvalid) {
-    throw { status: 403, message: "Invalid DEV_ENDPOINTS_IP_ALLOWLIST configuration" };
+    throw new AuthorizationError("Invalid DEV_ENDPOINTS_IP_ALLOWLIST configuration");
   }
 
   if (devEndpointsIpAllowlist.length === 0) {
@@ -141,84 +176,123 @@ function enforceDevEndpointIpAllowlist(request: FastifyRequest) {
   const ip = getRequestIp(request);
   const normalizedIp = ip ? normalizeIp(ip) : null;
   if (!normalizedIp || !isIpAllowed(normalizedIp, devEndpointsIpAllowlist)) {
-    throw { status: 403, message: "IP not allowed for dev endpoints" };
+    throw new AuthorizationError("IP not allowed for dev endpoints", {
+      ip: ip || "unknown"
+    });
   }
 }
 
+/**
+ * Resolve auth context from request
+ * @throws ValidationError if tenant hint is missing in multi-tenant mode
+ * @throws TenantNotFoundError if tenant is not found
+ * @throws TenantSuspendedError if tenant is not active
+ */
 async function resolveAuthContext(config: AuthConfig, request: FastifyRequest): Promise<AuthContext> {
   if (config.mode === "single") {
     return {
-    authInstance: { api: (auth as any).api } as BetterAuthInstance,
+      authInstance: { api: (auth as any).api } as BetterAuthInstance,
       tenantId: config.singleTenantId
     };
   }
 
   const tenantHint = extractTenantHint(request);
   if (!tenantHint) {
-    throw { status: 400, message: "X-Tenant-Id header is required for dev endpoints in multi-tenant mode" };
+    throw new ValidationError("X-Tenant-Id header is required for dev endpoints in multi-tenant mode", {
+      hint: "Provide via X-Tenant-Id header or tenantId query parameter"
+    });
   }
 
   const tenant = tenantManager.resolveTenant(tenantHint);
   if (!tenant) {
-    throw { status: 404, message: `Tenant not found: ${tenantHint}` };
+    throw new TenantNotFoundError(tenantHint);
   }
 
   if (tenant.status !== "active") {
-    throw { status: 403, message: `Tenant ${tenant.id} is not active` };
+    throw new TenantSuspendedError(tenant.id, tenant.status);
   }
 
   return {
-    authInstance: getTenantAuth(tenant.id) as unknown as BetterAuthInstance,
+    authInstance: await getTenantAuth(tenant.id) as unknown as BetterAuthInstance,
     tenantId: tenant.id
   };
 }
 
+/**
+ * Get auth context from request
+ * @throws InternalServerError if auth context is not initialized
+ */
 function getAuthContext(config: AuthConfig, request: DevRequest): AuthContext {
   if (request.devAuthContext) {
     return request.devAuthContext;
   }
 
-  throw { status: 500, message: "Auth context not initialized" };
+  throw new InternalServerError("Auth context not initialized");
 }
 
-// Auth helpers
+/**
+ * Require authenticated user
+ * @throws AuthenticationError if not authenticated
+ */
 async function requireUser(authInstance: BetterAuthInstance, headers: Headers) {
   const session = await authInstance.api.getSession({ headers });
   if (!session?.user) {
-    throw { status: 401, message: "Authentication required" };
+    throw new AuthenticationError("Authentication required");
   }
   return session;
 }
 
+/**
+ * Require admin role
+ * @throws AuthorizationError if not admin
+ */
 async function requireAdmin(authInstance: BetterAuthInstance, headers: Headers) {
   const session = await requireUser(authInstance, headers);
   if (session.user.role !== "admin") {
-    throw { status: 403, message: "Admin access required" };
+    throw new AuthorizationError("Admin access required", {
+      currentRole: session.user.role || "none"
+    });
   }
   return session;
 }
 
-async function requireOrgRole(authInstance: BetterAuthInstance, headers: Headers, orgId: string, roles: string[]) {
+/**
+ * Require organization role
+ * @throws InsufficientRoleError if user lacks required role
+ */
+async function requireOrgRole(
+  authInstance: BetterAuthInstance,
+  headers: Headers,
+  orgId: string,
+  roles: string[]
+) {
   const session = await requireUser(authInstance, headers);
 
   // Get user's organization memberships
   const organizations = await authInstance.api.listOrganizations({ headers });
-  
-  const membership = organizations?.find((org: any) => 
+
+  const membership = organizations?.find((org: any) =>
     org.id === orgId && roles.includes(org.role)
   );
-  
+
   if (!membership) {
-    throw { status: 403, message: "Insufficient organization permissions" };
+    throw new InsufficientRoleError(orgId, roles, session.user.role);
   }
-  
+
   return session;
+}
+
+/**
+ * Handle error and send response
+ */
+function handleError(error: unknown, reply: FastifyReply): void {
+  handleErrorResponse(error, reply);
 }
 
 // Dev endpoints registration
 export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
   console.log("Registering dev endpoints, devEnabled:", devEnabled);
-  
+
   if (!devEnabled) {
     console.log("Dev endpoints disabled, registering 404 handler");
     // Register 404 handler for all /dev/* routes when dev endpoints are disabled
@@ -255,8 +329,8 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
         } else {
           await requireUser(context.authInstance, headers);
         }
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
@@ -281,8 +355,8 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
           },
           memberships: organizations || []
         });
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
@@ -298,7 +372,7 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
 
         // Check if user can create API key for target user
         if (targetUserId !== session.user.id && session.user.role !== "admin") {
-          return reply.status(403).send({ error: "Can only create API keys for yourself or as admin" });
+          throw new AuthorizationError("Can only create API keys for yourself or as admin");
         }
 
         const result = await context.authInstance.api.createApiKey({
@@ -317,8 +391,8 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
           label: body.label,
           expiresAt: result.expiresAt
         });
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
@@ -334,7 +408,7 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
 
         // Check if user can list API keys for target user
         if (targetUserId !== session.user.id && session.user.role !== "admin") {
-          return reply.status(403).send({ error: "Can only list your own API keys or as admin" });
+          throw new AuthorizationError("Can only list your own API keys or as admin");
         }
 
         const keys = await context.authInstance.api.listApiKeys({
@@ -343,8 +417,8 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
         });
 
         reply.send({ keys });
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
@@ -362,8 +436,8 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
         });
 
         reply.send({ success: true });
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
@@ -379,7 +453,7 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
 
         // Check if user can issue JWT for target user
         if (targetUserId !== session.user.id && session.user.role !== "admin") {
-          return reply.status(403).send({ error: "Can only issue JWT for yourself or as admin" });
+          throw new AuthorizationError("Can only issue JWT for yourself or as admin");
         }
 
         const ttl = body.ttlSeconds || 1800; // 30 minutes default
@@ -403,7 +477,7 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
         });
 
         if (!tokenResponse.ok) {
-          throw { status: 400, message: "Failed to create JWT token" };
+          throw new InternalServerError("Failed to create JWT token");
         }
 
         const tokenData = await tokenResponse.json();
@@ -412,8 +486,8 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
           token: tokenData.token,
           expiresAt
         });
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
@@ -433,12 +507,12 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
           }
         });
         if (!jwksResponse.ok) {
-          throw { status: 500, message: "Failed to fetch JWKS" };
+          throw new InternalServerError("Failed to fetch JWKS");
         }
         const jwks = await jwksResponse.json();
         reply.send(jwks);
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
@@ -450,6 +524,10 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
         await requireUser(context.authInstance, headers);
         const body = request.body as any;
 
+        if (!body.name) {
+          throw new ValidationError("Organization name is required");
+        }
+
         const org = await context.authInstance.api.createOrganization({
           headers,
           body: {
@@ -459,8 +537,8 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
         });
 
         reply.send({ org });
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
@@ -474,6 +552,10 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
 
         await requireOrgRole(context.authInstance, headers, params.orgId, ["owner", "admin"]);
 
+        if (!body.email) {
+          throw new ValidationError("Email is required");
+        }
+
         const member = await context.authInstance.api.createInvitation({
           headers,
           body: {
@@ -484,8 +566,8 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
         });
 
         reply.send({ member });
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
@@ -499,6 +581,10 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
 
         await requireOrgRole(context.authInstance, headers, params.orgId, ["owner", "admin"]);
 
+        if (!body.role) {
+          throw new ValidationError("Role is required");
+        }
+
         const member = await context.authInstance.api.updateMemberRole({
           headers,
           body: {
@@ -509,8 +595,8 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
         });
 
         reply.send({ member });
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
@@ -531,8 +617,8 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
         const members = organization?.members || [];
 
         reply.send({ members });
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
@@ -552,8 +638,8 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
         });
 
         reply.send({ users });
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
@@ -562,8 +648,15 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
       try {
         const headers = toHeaders(request.headers);
         const context = (request as DevRequest).devAuthContext || await resolveAuthContext(config, request);
-        await requireAdmin(context.authInstance, headers);
+        const adminSession = await requireAdmin(context.authInstance, headers);
         const body = request.body as any;
+
+        if (!body.userId) {
+          throw new ValidationError("userId is required");
+        }
+
+        // Log impersonation attempt for audit trail (Poin 6 improvement)
+        console.log(`[IMPERSONATION] Admin ${adminSession.user.email} (${adminSession.user.id}) impersonating user ${body.userId} at ${new Date().toISOString()}`);
 
         const result = await context.authInstance.api.impersonateUser({
           headers,
@@ -575,12 +668,16 @@ export function registerDevEndpoints(app: FastifyInstance, config: AuthConfig) {
         if (body.as === "jwt") {
           reply.send({ token: result.session.token });
         } else {
+          // Build secure cookie string
+          const secureFlag = isProduction ? "; Secure" : "";
+          const cookieValue = `better-auth.session_token=${result.session.token}; Path=/; HttpOnly; SameSite=lax${secureFlag}; Max-Age=604800`;
+          
           reply
-            .header("set-cookie", `better-auth.session_token=${result.session.token}; Path=/; HttpOnly; SameSite=lax; Max-Age=604800`)
+            .header("set-cookie", cookieValue)
             .send({ success: true, message: "Impersonation session set" });
         }
-      } catch (error: any) {
-        reply.status(error.status || 500).send({ error: error.message });
+      } catch (error) {
+        handleError(error, reply);
       }
     });
 
