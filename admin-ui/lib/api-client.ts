@@ -142,6 +142,10 @@ export const apiClient = {
     return this.request(`/admin/api/security/ip-check/${encodeURIComponent(ip)}`);
   },
 
+  async getDashboardMetrics() {
+    return this.request('/admin/api/dashboard-metrics');
+  },
+
   async pruneConnections(force?: boolean) {
     return this.request('/admin/api/connections/prune', {
       method: 'POST',
