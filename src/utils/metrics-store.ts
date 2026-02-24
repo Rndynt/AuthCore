@@ -197,6 +197,18 @@ class MetricsStore {
   }
   
   /**
+   * Get time series data
+   */
+  getTimeSeriesData() {
+    return {
+      requestsPerMinute: this.requestsPerMinute,
+      responseTimeAvg: this.responseTimeAvg,
+      errorRate: this.errorRate,
+      activeConnections: this.activeConnections,
+    };
+  }
+
+  /**
    * Reset all metrics
    */
   reset() {
