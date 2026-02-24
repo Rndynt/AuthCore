@@ -117,21 +117,40 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   const handleAdminApiRoute = async (request: FastifyRequest, reply: FastifyReply) => {
-    const response = await handleAdminApiRequest(buildAdminRequest(request), { ip: request.ip });
-    if (!response) {
-      reply.code(404).send({ error: "Not Found" });
-      return;
+    try {
+      const response = await handleAdminApiRequest(buildAdminRequest(request), { ip: request.ip });
+      if (!response) {
+        reply.code(404).send({ error: "Not Found" });
+        return;
+      }
+      await sendWebResponse(reply, response);
+    } catch (error) {
+      // Handle errors properly
+      if (error instanceof Response) {
+        await sendWebResponse(reply, error);
+        return;
+      }
+      console.error('[Admin API Route] Error:', error);
+      reply.code(500).send({ error: 'Internal server error' });
     }
-    await sendWebResponse(reply, response);
   };
 
   const handleAdminLogRoute = async (request: FastifyRequest, reply: FastifyReply) => {
-    const response = await handleAdminLogStream(buildAdminRequest(request), { ip: request.ip });
-    if (!response) {
-      reply.code(404).send({ error: "Not Found" });
-      return;
+    try {
+      const response = await handleAdminLogStream(buildAdminRequest(request), { ip: request.ip });
+      if (!response) {
+        reply.code(404).send({ error: "Not Found" });
+        return;
+      }
+      await sendWebResponse(reply, response);
+    } catch (error) {
+      if (error instanceof Response) {
+        await sendWebResponse(reply, error);
+        return;
+      }
+      console.error('[Admin Log Route] Error:', error);
+      reply.code(500).send({ error: 'Internal server error' });
     }
-    await sendWebResponse(reply, response);
   };
 
   app.route({

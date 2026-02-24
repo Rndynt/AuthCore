@@ -392,10 +392,8 @@ function registerRoutes() {
     }
   });
 
-  // Health check route (all modes) - with rate limiting
-  app.get("/healthz", {
-    config: { rateLimit: createHealthRateLimit() }
-  }, async (req, reply) => {
+  // Health check route (all modes)
+  app.get("/healthz", async (req, reply) => {
     reply.send({ 
       ok: true,
       mode: authConfig.mode,

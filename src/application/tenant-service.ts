@@ -9,7 +9,8 @@ import { tenantManager } from '../multi-tenant/connection-manager.js';
 import { devEnabled, trustedOrigins } from '../env.js';
 import type { AuditLogEntry } from '../domain/tenant/audit-log.js';
 import { TenantValidationError } from '../domain/tenant/errors.js';
-import type { SecuritySettings } from '../domain/tenant/security-settings.js';
+import type { SecuritySettings, IpBlockEntry, CreateIpBlockInput, UpdateSecuritySettingsInput, RateLimitSettings, DEFAULT_RATE_LIMIT_SETTINGS } from '../domain/tenant/security-settings.js';
+import { isValidIpOrCidr } from '../domain/tenant/security-settings.js';
 import { buildTenantSchemaName, normalizeTenantIdentifier } from '../domain/tenant/services.js';
 import type { CreateTenantInput, Tenant } from '../domain/tenant/tenant.js';
 import type { TenantRepository } from '../domain/tenant/tenant-repository.js';
@@ -466,10 +467,20 @@ export class TenantService {
       apiKeyRotationDays: null,
       adminIpAllowlist: [],
       enforceAdminMfa: false,
-      readOnlyMode: false
+      readOnlyMode: false,
+      ipBlocklist: [],
+      rateLimitOverrides: {},
+      enableIpBlocking: true,
+      enableRateLimitLogging: true,
+      blockOnRateLimitExceeded: false,
+      rateLimitBlockDurationMs: 3600000,
     };
   }
 
+
+  /**
+   * Get security settings with defaults
+   */
   async getSecuritySettings(): Promise<SecuritySettings> {
     await this.repository.ensureAdminSettingsTable();
 
@@ -501,13 +512,31 @@ export class TenantService {
         : defaults.enforceAdminMfa,
       readOnlyMode: typeof stored.readOnlyMode === 'boolean'
         ? stored.readOnlyMode
-        : defaults.readOnlyMode
+        : defaults.readOnlyMode,
+      // New fields with defaults
+      ipBlocklist: Array.isArray(stored.ipBlocklist) ? stored.ipBlocklist : [],
+      rateLimitOverrides: stored.rateLimitOverrides || {},
+      enableIpBlocking: typeof stored.enableIpBlocking === 'boolean'
+        ? stored.enableIpBlocking
+        : defaults.enableIpBlocking,
+      enableRateLimitLogging: typeof stored.enableRateLimitLogging === 'boolean'
+        ? stored.enableRateLimitLogging
+        : defaults.enableRateLimitLogging,
+      blockOnRateLimitExceeded: typeof stored.blockOnRateLimitExceeded === 'boolean'
+        ? stored.blockOnRateLimitExceeded
+        : defaults.blockOnRateLimitExceeded,
+      rateLimitBlockDurationMs: typeof stored.rateLimitBlockDurationMs === 'number'
+        ? stored.rateLimitBlockDurationMs
+        : defaults.rateLimitBlockDurationMs,
     };
   }
 
+  /**
+   * Update security settings
+   */
   async updateSecuritySettings(
     adminUserId: string,
-    updates: Partial<SecuritySettings>
+    updates: UpdateSecuritySettingsInput
   ): Promise<SecuritySettings> {
     await this.repository.ensureAdminSettingsTable();
 
@@ -543,12 +572,174 @@ export class TenantService {
         : current.enforceAdminMfa,
       readOnlyMode: typeof updates.readOnlyMode === 'boolean'
         ? updates.readOnlyMode
-        : current.readOnlyMode
+        : current.readOnlyMode,
+      // New fields
+      ipBlocklist: current.ipBlocklist,
+      rateLimitOverrides: updates.rateLimitOverrides || current.rateLimitOverrides,
+      enableIpBlocking: typeof updates.enableIpBlocking === 'boolean'
+        ? updates.enableIpBlocking
+        : current.enableIpBlocking,
+      enableRateLimitLogging: typeof updates.enableRateLimitLogging === 'boolean'
+        ? updates.enableRateLimitLogging
+        : current.enableRateLimitLogging,
+      blockOnRateLimitExceeded: typeof updates.blockOnRateLimitExceeded === 'boolean'
+        ? updates.blockOnRateLimitExceeded
+        : current.blockOnRateLimitExceeded,
+      rateLimitBlockDurationMs: typeof updates.rateLimitBlockDurationMs === 'number'
+        ? updates.rateLimitBlockDurationMs
+        : current.rateLimitBlockDurationMs,
     };
 
     await this.repository.updateSecuritySettings(adminUserId, payload);
 
     return payload;
+  }
+
+  /**
+   * Block an IP address
+   */
+  async blockIp(
+    adminUserId: string,
+    input: CreateIpBlockInput
+  ): Promise<IpBlockEntry> {
+    if (!isValidIpOrCidr(input.ip)) {
+      throw new TenantValidationError(`Invalid IP address or CIDR: ${input.ip}`);
+    }
+
+    const settings = await this.getSecuritySettings();
+
+    // Check if already blocked
+    const existingIndex = settings.ipBlocklist.findIndex(e => e.ip === input.ip);
+    if (existingIndex >= 0) {
+      // Update existing block
+      settings.ipBlocklist[existingIndex] = {
+        ip: input.ip,
+        reason: input.reason,
+        blockedAt: new Date(),
+        blockedBy: input.blockedBy,
+        expiresAt: input.expiresInMs ? new Date(Date.now() + input.expiresInMs) : null,
+        isCidr: input.ip.includes('/'),
+      };
+    } else {
+      // Add new block
+      settings.ipBlocklist.push({
+        ip: input.ip,
+        reason: input.reason,
+        blockedAt: new Date(),
+        blockedBy: input.blockedBy,
+        expiresAt: input.expiresInMs ? new Date(Date.now() + input.expiresInMs) : null,
+        isCidr: input.ip.includes('/'),
+      });
+    }
+
+    await this.repository.updateSecuritySettings(adminUserId, settings);
+
+    await this.logAuditAction(
+      adminUserId,
+      'block_ip',
+      'security',
+      input.ip,
+      { reason: input.reason, expiresInMs: input.expiresInMs }
+    );
+
+    return settings.ipBlocklist.find(e => e.ip === input.ip)!;
+  }
+
+  /**
+   * Unblock an IP address
+   */
+  async unblockIp(
+    adminUserId: string,
+    ip: string
+  ): Promise<boolean> {
+    const settings = await this.getSecuritySettings();
+    const index = settings.ipBlocklist.findIndex(e => e.ip === ip);
+
+    if (index < 0) {
+      return false;
+    }
+
+    settings.ipBlocklist.splice(index, 1);
+    await this.repository.updateSecuritySettings(adminUserId, settings);
+
+    await this.logAuditAction(
+      adminUserId,
+      'unblock_ip',
+      'security',
+      ip,
+      {}
+    );
+
+    return true;
+  }
+
+  /**
+   * Get IP blocklist
+   */
+  async getIpBlocklist(): Promise<IpBlockEntry[]> {
+    const settings = await this.getSecuritySettings();
+    const now = new Date();
+
+    // Filter out expired entries
+    return settings.ipBlocklist.filter(entry => {
+      if (entry.expiresAt && entry.expiresAt < now) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Check if IP is blocked
+   */
+  async isIpBlocked(ip: string): Promise<{ blocked: boolean; entry?: IpBlockEntry }> {
+    const settings = await this.getSecuritySettings();
+
+    if (!settings.enableIpBlocking) {
+      return { blocked: false };
+    }
+
+    const now = new Date();
+
+    for (const entry of settings.ipBlocklist) {
+      // Check if entry has expired
+      if (entry.expiresAt && entry.expiresAt < now) {
+        continue;
+      }
+
+      if (entry.isCidr) {
+        // Simple CIDR matching - for production use a proper library
+        const [prefix, bits] = entry.ip.split('/');
+        const prefixParts = prefix.split('.');
+        const ipParts = ip.split('.');
+
+        if (ipParts.length !== 4) continue;
+
+        const mask = parseInt(bits || '32', 10);
+        let match = true;
+
+        for (let i = 0; i < 4; i++) {
+          const prefixNum = parseInt(prefixParts[i] || '0', 10);
+          const ipNum = parseInt(ipParts[i] || '0', 10);
+          const bitMask = mask >= (i + 1) * 8 ? 255 : mask > i * 8 ? (255 << (8 - (mask - i * 8))) & 255 : 0;
+
+          if ((ipNum & bitMask) !== (prefixNum & bitMask)) {
+            match = false;
+            break;
+          }
+        }
+
+        if (match) {
+          return { blocked: true, entry };
+        }
+      } else {
+        if (ip === entry.ip) {
+          return { blocked: true, entry };
+        }
+      }
+    }
+
+    return { blocked: false };
   }
 
   /**

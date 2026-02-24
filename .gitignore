@@ -8,3 +8,10 @@ cookie.txt
 .env
 # Local Netlify folder
 .netlify
+
+# Next.js build output
+admin-ui/.next/
+admin-ui/out/
+admin-ui/node_modules/
+
+# Analysis reports

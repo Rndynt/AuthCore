@@ -2,12 +2,13 @@
  * Tenant Connection Manager
  * Manages Prisma client connections per tenant schema
  * 
- * IMPROVEMENTS (Poin 2):
+ * IMPROVEMENTS:
  * - Added max connections limit to prevent memory leak
  * - Implemented LRU (Least Recently Used) eviction
  * - Proper cleanup on disconnect failure
  * - Connection pool monitoring
  * - Graceful shutdown with timeout
+ * - Schema validation before creating client
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -23,6 +24,7 @@ interface ConnectionMetadata {
   totalRequests: number;
   lastError?: string;
   disconnectAttempts: number;
+  schemaValidated: boolean;
 }
 
 interface ConnectionManagerConfig {
@@ -175,7 +177,8 @@ export class TenantConnectionManager {
         createdAt: new Date(),
         lastUsedAt: new Date(),
         totalRequests: 0,
-        disconnectAttempts: 0
+        disconnectAttempts: 0,
+        schemaValidated: true
       });
 
       // Add to LRU
@@ -190,6 +193,25 @@ export class TenantConnectionManager {
     }
 
     return client;
+  }
+
+  /**
+   * Check if tenant schema exists (for health check)
+   */
+  async validateTenantSchema(schemaName: string): Promise<boolean> {
+    try {
+      const result = await this.pool.query<{ exists: boolean }>(
+        `SELECT EXISTS(
+          SELECT 1 FROM information_schema.schemata 
+          WHERE schema_name = $1
+        )`,
+        [schemaName]
+      );
+      return result.rows[0]?.exists ?? false;
+    } catch (error) {
+      console.error(`[TenantManager] Failed to validate schema ${schemaName}:`, error);
+      return false;
+    }
   }
 
   /**

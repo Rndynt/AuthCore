@@ -147,6 +147,13 @@ export function createAdminApiHandlers(deps: AdminApiDependencies) {
       }
       return session;
     } catch (error) {
+      // Don't log expected UNAUTHORIZED errors
+      if (error instanceof Error && error.message === "UNAUTHORIZED") {
+        throw jsonResponse({
+          error: "UNAUTHORIZED",
+          message: "Admin authentication required. Please login."
+        }, { status: 401 });
+      }
       console.error("[Admin API] Session validation error:", error);
       throw jsonResponse({
         error: "UNAUTHORIZED",
@@ -442,6 +449,38 @@ export function createAdminApiHandlers(deps: AdminApiDependencies) {
               );
               return jsonResponse({ settings });
             }
+          }
+
+          // IP Blocking endpoints
+          if (resource.length >= 2 && resource[1] === "ip-blocklist") {
+            if (method === "GET") {
+              const blocklist = await deps.tenantService.getIpBlocklist();
+              return jsonResponse({ blocklist });
+            }
+
+            if (method === "POST" && resource.length === 2) {
+              const body = await parseJsonBody(request);
+              const entry = await deps.tenantService.blockIp(adminUser.id, {
+                ip: body?.ip,
+                reason: body?.reason || "Blocked via admin",
+                blockedBy: adminUser.id,
+                expiresInMs: body?.expiresInMs,
+              });
+              return jsonResponse({ entry });
+            }
+
+            if (method === "DELETE" && resource.length === 3) {
+              const ipToUnblock = decodeURIComponent(resource[2]);
+              const result = await deps.tenantService.unblockIp(adminUser.id, ipToUnblock);
+              return jsonResponse({ success: result });
+            }
+          }
+
+          // Check if IP is blocked
+          if (resource.length === 3 && resource[1] === "ip-check") {
+            const ipToCheck = decodeURIComponent(resource[2]);
+            const result = await deps.tenantService.isIpBlocked(ipToCheck);
+            return jsonResponse(result);
           }
           break;
         }
