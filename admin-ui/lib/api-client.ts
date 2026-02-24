@@ -120,6 +120,28 @@ export const apiClient = {
     });
   },
 
+  // IP Blocking
+  async getIpBlocklist() {
+    return this.request('/admin/api/security/ip-blocklist');
+  },
+
+  async blockIp(ip: string, reason: string, expiresInMs?: number) {
+    return this.request('/admin/api/security/ip-blocklist', {
+      method: 'POST',
+      body: JSON.stringify({ ip, reason, expiresInMs }),
+    });
+  },
+
+  async unblockIp(ip: string) {
+    return this.request(`/admin/api/security/ip-blocklist/${encodeURIComponent(ip)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async checkIpBlocked(ip: string) {
+    return this.request(`/admin/api/security/ip-check/${encodeURIComponent(ip)}`);
+  },
+
   async pruneConnections(force?: boolean) {
     return this.request('/admin/api/connections/prune', {
       method: 'POST',

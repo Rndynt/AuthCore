@@ -22,7 +22,7 @@ interface RateLimitConfig {
   max: number;
   timeWindow: string;
   keyGenerator?: (request: FastifyRequest) => string;
-  onExceeded?: (request: FastifyRequest, reply: FastifyReply) => void;
+  onExceeded?: (request: FastifyRequest, key: string) => void;
   skipOnError?: boolean;
 }
 
@@ -111,14 +111,10 @@ function createKeyGenerator(baseGenerator: (request: FastifyRequest) => string) 
   };
 }
 
-// Handler for rate limit exceeded
-function onRateLimitExceeded(request: FastifyRequest, reply: FastifyReply): void {
+// Handler for rate limit exceeded - Fixed signature for Fastify 5.x
+function onRateLimitExceeded(request: FastifyRequest, key: string): void {
   const ip = request.ip || 'unknown';
-  console.warn(`[Rate Limit] Exceeded for IP: ${ip}, Path: ${request.url}`);
-  
-  reply.header('X-RateLimit-Limit', reply.getHeader('X-RateLimit-Limit') || '0');
-  reply.header('X-RateLimit-Remaining', '0');
-  reply.header('X-RateLimit-Reset', reply.getHeader('X-RateLimit-Reset') || '0');
+  console.warn(`[Rate Limit] Exceeded for IP: ${ip}, Key: ${key}, Path: ${request.url}`);
 }
 
 /**
@@ -128,7 +124,6 @@ export async function registerRateLimiting(app: FastifyInstance): Promise<void> 
   // Register the rate limit plugin
   await app.register(rateLimit, {
     global: false, // We'll apply rate limits per route group
-    redis: process.env.REDIS_URL ? new URL(process.env.REDIS_URL) : undefined,
     nameSpace: 'realmio:rate-limit:',
     continueExceeding: true,
     skipOnError: true, // Don't block requests if rate limit store fails
@@ -157,11 +152,8 @@ export function createAuthRateLimit() {
     max: RATE_LIMIT_CONFIGS.auth.max,
     timeWindow: RATE_LIMIT_CONFIGS.auth.timeWindow,
     keyGenerator: createKeyGenerator(RATE_LIMIT_CONFIGS.auth.keyGenerator!),
-    onExceeding: (request: FastifyRequest) => {
-      const remaining = request.headers['x-ratelimit-remaining'];
-      if (remaining && parseInt(remaining as string, 10) <= 3) {
-        console.warn(`[Rate Limit] Auth endpoint approaching limit: ${request.ip}`);
-      }
+    onExceeding: (request: FastifyRequest, key: string) => {
+      console.warn(`[Rate Limit] Auth endpoint approaching limit: ${key}`);
     },
     onExceeded: onRateLimitExceeded,
   };
