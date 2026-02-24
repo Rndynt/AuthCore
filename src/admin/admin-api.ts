@@ -606,6 +606,8 @@ export function createAdminApiHandlers(deps: AdminApiDependencies) {
       return null;
     }
 
+    console.log("[Admin Log Stream] Request received, checking auth...");
+
     if (request.method.toUpperCase() !== "GET") {
       return jsonResponse({ error: "Method Not Allowed" }, { status: 405 });
     }
@@ -618,15 +620,23 @@ export function createAdminApiHandlers(deps: AdminApiDependencies) {
     }
 
     const headers = new Headers(request.headers);
+    
+    // Debug: log cookies
+    const cookieHeader = headers.get("cookie");
+    console.log("[Admin Log Stream] Cookie header:", cookieHeader ? cookieHeader.substring(0, 100) + "..." : "none");
+    
     try {
       await ensureAdminSession(headers);
     } catch (error) {
       if (error instanceof Response) {
+        console.error("[Admin Log Stream] Auth failed - returning error response");
         return error;
       }
       console.error("[Admin Log Stream] Session validation error:", error);
       return jsonResponse({ error: "UNAUTHORIZED" }, { status: 401 });
     }
+
+    console.log("[Admin Log Stream] ✅ Client authenticated, starting stream...");
 
     const ip = getClientIp(context);
     if (ip) {
