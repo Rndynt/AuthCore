@@ -574,6 +574,14 @@ export function createAdminApiHandlers(deps: AdminApiDependencies) {
           break;
         }
 
+        case "time-series": {
+          if (resource.length === 1 && method === "GET") {
+            const data = await metricsStore.getTimeSeriesData();
+            return jsonResponse({ data });
+          }
+          break;
+        }
+
         default:
           break;
       }
