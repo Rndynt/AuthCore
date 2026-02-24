@@ -100,38 +100,87 @@ export default function MonitoringPage() {
     }
 
     setConnectionState('connecting');
-    const source = new EventSource(streamUrl, { withCredentials: true });
-    eventSourceRef.current = source;
-
-    const handleLog = (event: MessageEvent) => {
+    
+    // Use fetch with credentials for SSE instead of EventSource
+    // This ensures cookies are sent properly
+    const abortController = new AbortController();
+    
+    const connectSSE = async () => {
       try {
-        const payload = JSON.parse(event.data) as LogEntry;
-        setLogs((previous) => [payload, ...previous].slice(0, MAX_LOGS));
-        setLastReceivedAt(payload.timestamp);
+        const response = await fetch(streamUrl, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Accept': 'text/event-stream',
+          },
+          signal: abortController.signal,
+        });
+
+        if (!response.ok) {
+          console.error('SSE connection failed:', response.status);
+          setConnectionState('closed');
+          return;
+        }
+
         setConnectionState('open');
-      } catch (error) {
-        console.error('Failed to parse log event', error);
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          setConnectionState('closed');
+          return;
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+
+            // Parse SSE format: event: xxx\ndata: yyy
+            const eventMatch = line.match(/event:\s*(\w+)/);
+            // Use multiline match without 's' flag for compatibility
+            const dataMatch = line.match(/data:\s*([\s\S]+)/);
+
+            if (eventMatch && dataMatch) {
+              const eventType = eventMatch[1];
+              const data = dataMatch[1];
+
+              if (eventType === 'ready') {
+                console.log('SSE ready');
+              } else if (eventType === 'log') {
+                try {
+                  const payload = JSON.parse(data) as LogEntry;
+                  setLogs((previous) => [payload, ...previous].slice(0, MAX_LOGS));
+                  setLastReceivedAt(payload.timestamp);
+                } catch (error) {
+                  console.error('Failed to parse log event', error);
+                }
+              }
+            }
+          }
+        }
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          console.log('SSE connection aborted');
+        } else {
+          console.error('SSE error:', error);
+          setConnectionState('closed');
+        }
       }
     };
 
-    const handleReady = () => {
-      setConnectionState('open');
-    };
-
-    source.addEventListener('log', handleLog);
-    source.addEventListener('ready', handleReady);
-    source.onopen = () => setConnectionState('open');
-    source.onerror = () => {
-      // Fastify keeps retrying automatically; we simply surface the state change.
-      setConnectionState((current) => (current === 'paused' ? current : 'connecting'));
-    };
+    connectSSE();
 
     return () => {
-      source.removeEventListener('log', handleLog);
-      source.removeEventListener('ready', handleReady);
-      source.close();
-      eventSourceRef.current = null;
-      setConnectionState((current) => (current === 'paused' ? current : 'closed'));
+      abortController.abort();
     };
   }, [isPaused, streamUrl]);
 
