@@ -4,6 +4,7 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import type { TenantRequest } from "../multi-tenant/middleware.js";
 import { emitLogEvent } from "./log-stream.js";
 import { recordCompletedRequest } from "./request-metrics.js";
+import { metricsStore } from "./metrics-store.js";
 
 export interface RequestLogContext {
   startedAt: number;
@@ -72,6 +73,9 @@ const requestLoggerPlugin: FastifyPluginAsync = async fastify => {
       statusCode: reply.statusCode,
       durationMs
     });
+
+    // Record for metrics dashboard
+    metricsStore.recordRequest(reply.statusCode, durationMs, requestLog.tenantId || undefined);
 
     const statusCode = reply.statusCode;
     const level = statusCode >= 500 ? "error" : statusCode >= 400 ? "warn" : "info";

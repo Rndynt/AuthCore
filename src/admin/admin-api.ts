@@ -2,6 +2,8 @@ import { TenantValidationError } from "../domain/tenant/errors.js";
 import type { Tenant } from "../domain/tenant/tenant.js";
 import type { SecuritySettings } from "../domain/tenant/security-settings.js";
 import type { LogEvent } from "../utils/log-stream.js";
+import { metricsStore } from "../utils/metrics-store.js";
+import { tenantManager } from "../multi-tenant/connection-manager.js";
 
 const encoder = new TextEncoder();
 
@@ -560,6 +562,14 @@ export function createAdminApiHandlers(deps: AdminApiDependencies) {
             });
 
             return jsonResponse(auditLogs);
+          }
+          break;
+        }
+
+        case "dashboard-metrics": {
+          if (resource.length === 1 && method === "GET") {
+            const metrics = await metricsStore.getMetrics();
+            return jsonResponse({ metrics });
           }
           break;
         }
