@@ -6,7 +6,7 @@ import { QueryProvider } from '@/lib/query-provider';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'AuthCore Admin Dashboard',
+  title: 'Realmio Console',
   description: 'Multi-tenant authentication system admin panel',
 };
 

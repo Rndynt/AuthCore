@@ -39,7 +39,7 @@ export default function LoginPage() {
           <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mb-2">
             <Shield className="w-6 h-6 text-primary-foreground" />
           </div>
-          <CardTitle className="text-2xl font-bold">AuthCore Admin</CardTitle>
+          <CardTitle className="text-2xl font-bold">Realmio Console</CardTitle>
           <CardDescription>
             Sign in to manage your multi-tenant authentication system
           </CardDescription>
@@ -58,7 +58,7 @@ export default function LoginPage() {
               <Input
                 id="email"
                 type="email"
-                placeholder="root@authcore.local"
+                placeholder="admin@realmio.id"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
