@@ -65,6 +65,11 @@ export interface AdminApiTenantService {
     details: unknown,
     ipAddress?: string
   ): Promise<void>;
+  // IP Blocking methods
+  getIpBlocklist(): Promise<import("../domain/tenant/security-settings.js").IpBlockEntry[]>;
+  blockIp(adminUserId: string, input: import("../domain/tenant/security-settings.js").CreateIpBlockInput): Promise<import("../domain/tenant/security-settings.js").IpBlockEntry>;
+  unblockIp(adminUserId: string, ip: string): Promise<boolean>;
+  isIpBlocked(ip: string): Promise<{ blocked: boolean; entry?: import("../domain/tenant/security-settings.js").IpBlockEntry }>;
 }
 
 export interface AdminApiDependencies {

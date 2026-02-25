@@ -10,7 +10,7 @@ import { devEnabled, trustedOrigins } from '../env.js';
 import type { AuditLogEntry } from '../domain/tenant/audit-log.js';
 import { TenantValidationError } from '../domain/tenant/errors.js';
 import type { SecuritySettings, IpBlockEntry, CreateIpBlockInput, UpdateSecuritySettingsInput, RateLimitSettings, DEFAULT_RATE_LIMIT_SETTINGS } from '../domain/tenant/security-settings.js';
-import { isValidIpOrCidr } from '../domain/tenant/security-settings.js';
+
 import { buildTenantSchemaName, normalizeTenantIdentifier } from '../domain/tenant/services.js';
 import type { CreateTenantInput, Tenant } from '../domain/tenant/tenant.js';
 import type { TenantRepository } from '../domain/tenant/tenant-repository.js';
