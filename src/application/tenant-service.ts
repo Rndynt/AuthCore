@@ -16,6 +16,8 @@ import type { CreateTenantInput, Tenant } from '../domain/tenant/tenant.js';
 import type { TenantRepository } from '../domain/tenant/tenant-repository.js';
 import { PgTenantRepository } from '../infrastructure/db/tenant-repository.js';
 
+import { isIpInBlocklist, isValidIpOrCidr, normalizeIp, convertIpv4Mapped } from '../utils/ip-utils.js';
+
 export interface TenantMetrics {
   userCount: number;
   sessionCount: number;
@@ -690,7 +692,7 @@ export class TenantService {
   }
 
   /**
-   * Check if IP is blocked
+   * Check if IP is blocked (IPv4 and IPv6 support)
    */
   async isIpBlocked(ip: string): Promise<{ blocked: boolean; entry?: IpBlockEntry }> {
     const settings = await this.getSecuritySettings();
@@ -699,47 +701,16 @@ export class TenantService {
       return { blocked: false };
     }
 
-    const now = new Date();
-
-    for (const entry of settings.ipBlocklist) {
-      // Check if entry has expired
-      if (entry.expiresAt && entry.expiresAt < now) {
-        continue;
-      }
-
-      if (entry.isCidr) {
-        // Simple CIDR matching - for production use a proper library
-        const [prefix, bits] = entry.ip.split('/');
-        const prefixParts = prefix.split('.');
-        const ipParts = ip.split('.');
-
-        if (ipParts.length !== 4) continue;
-
-        const mask = parseInt(bits || '32', 10);
-        let match = true;
-
-        for (let i = 0; i < 4; i++) {
-          const prefixNum = parseInt(prefixParts[i] || '0', 10);
-          const ipNum = parseInt(ipParts[i] || '0', 10);
-          const bitMask = mask >= (i + 1) * 8 ? 255 : mask > i * 8 ? (255 << (8 - (mask - i * 8))) & 255 : 0;
-
-          if ((ipNum & bitMask) !== (prefixNum & bitMask)) {
-            match = false;
-            break;
-          }
-        }
-
-        if (match) {
-          return { blocked: true, entry };
-        }
-      } else {
-        if (ip === entry.ip) {
-          return { blocked: true, entry };
-        }
-      }
-    }
-
-    return { blocked: false };
+    // Convert IPv4-mapped IPv6 to IPv4 if needed
+    const normalizedIp = convertIpv4Mapped(ip);
+    
+    // Use the proper IP matching utility
+    const result = isIpInBlocklist(normalizedIp, settings.ipBlocklist);
+    
+    return {
+      blocked: result.blocked,
+      entry: result.matchedEntry as IpBlockEntry | undefined
+    };
   }
 
   /**
