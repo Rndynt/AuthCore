@@ -28,6 +28,7 @@ model User {
   members       Member[]
   invitations   Invitation[]
   apikeys       Apikey[]
+  twoFactors    TwoFactor[]
 
   @@map("users")
 }
@@ -209,4 +210,15 @@ model Jwks {
   createdAt  DateTime
 
   @@map("jwks")
+}
+
+// Two-Factor Authentication model (for twoFactor plugin)
+model TwoFactor {
+  id          String  @id
+  secret      String
+  backupCodes String
+  userId      String
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("two_factor")
 }
