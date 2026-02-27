@@ -19,12 +19,10 @@
 
 # Next.js plugin - handles SSR/ISR for admin-ui
 # Plugin v5 (OpenNext-based) - manages routing and serverless functions automatically
+# Note: @netlify/plugin-nextjs v5 does NOT accept any inputs
+# The plugin uses publish = "admin-ui/.next" to locate the Next.js build output
 [[plugins]]
   package = "@netlify/plugin-nextjs"
-
-  [plugins.inputs]
-    # Tell the plugin where the Next.js app is located (relative to repo root)
-    appDir = "admin-ui"
 
 # Admin routes → admin-auth function
 [[redirects]]
