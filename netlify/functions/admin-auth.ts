@@ -196,15 +196,28 @@ const baseHandler: StreamingHandler = async (event: HandlerEvent) => {
     // Rewrite /admin/auth/* to /api/auth/* for Better Auth handler
     url.pathname = pathname.replace("/admin/auth", "/api/auth");
 
-    const res = await adminAuth.handler(
-      new Request(url.toString(), {
-        method: event.httpMethod,
-        headers,
-        body
-      })
-    );
+    try {
+      const res = await adminAuth.handler(
+        new Request(url.toString(), {
+          method: event.httpMethod,
+          headers,
+          body
+        })
+      );
 
-    return responseToNetlifyResult(res, event.headers.origin);
+      return responseToNetlifyResult(res, event.headers.origin);
+    } catch (error) {
+      // Better Auth sometimes throws Response objects directly (not Error objects)
+      if (error instanceof Response) {
+        return responseToNetlifyResult(error, event.headers.origin);
+      }
+      console.error('[Admin Auth] Handler error:', error);
+      return {
+        statusCode: 500,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "INTERNAL_ERROR", message: "Admin authentication failed" })
+      };
+    }
   }
 
   // Unknown admin route

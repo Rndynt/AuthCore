@@ -408,6 +408,21 @@ export class TenantConnectionManager {
   }
 
   private startCleanupScheduler() {
+    // Don't start cleanup scheduler in serverless environments
+    // (Netlify Functions, AWS Lambda, Vercel) - Lambda containers are
+    // short-lived and don't need periodic cleanup
+    const isServerless = !!(
+      process.env.NETLIFY ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.VERCEL ||
+      process.env.LAMBDA_TASK_ROOT ||
+      process.env.AWS_EXECUTION_ENV
+    );
+    
+    if (isServerless) {
+      return;
+    }
+
     if (this.cleanupInterval) {
       this.cleanupInterval.unref?.();
       return;
@@ -683,26 +698,39 @@ export class TenantConnectionManager {
 // Singleton instance
 export const tenantManager = new TenantConnectionManager();
 
-// Graceful shutdown handler with timeout
-let isShuttingDown = false;
+// Detect serverless environment (Netlify Functions, AWS Lambda, Vercel, etc.)
+const isServerless = !!(
+  process.env.NETLIFY ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.VERCEL ||
+  process.env.LAMBDA_TASK_ROOT ||
+  process.env.AWS_EXECUTION_ENV
+);
 
-const handleShutdown = async (signal: string) => {
-  if (isShuttingDown) {
-    console.log(`⚠️  Already shutting down, ignoring ${signal}`);
-    return;
-  }
-  isShuttingDown = true;
-  
-  console.log(`\n🛑 Received ${signal}, starting graceful shutdown...`);
-  
-  try {
-    await tenantManager.shutdown();
-    process.exit(0);
-  } catch (error) {
-    console.error('❌ Error during shutdown:', error);
-    process.exit(1);
-  }
-};
+// Only register graceful shutdown handlers in non-serverless environments
+// In serverless, SIGTERM is handled by the platform and we don't need to
+// explicitly close connections (they'll be garbage collected)
+if (!isServerless) {
+  let isShuttingDown = false;
 
-process.on('SIGTERM', () => handleShutdown('SIGTERM'));
-process.on('SIGINT', () => handleShutdown('SIGINT'));
+  const handleShutdown = async (signal: string) => {
+    if (isShuttingDown) {
+      console.log(`⚠️  Already shutting down, ignoring ${signal}`);
+      return;
+    }
+    isShuttingDown = true;
+    
+    console.log(`\n🛑 Received ${signal}, starting graceful shutdown...`);
+    
+    try {
+      await tenantManager.shutdown();
+      process.exit(0);
+    } catch (error) {
+      console.error('❌ Error during shutdown:', error);
+      process.exit(1);
+    }
+  };
+
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
+}
