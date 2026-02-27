@@ -395,6 +395,13 @@ const baseHandler: StreamingHandler = async (event: HandlerEvent) => {
 
     return responseToNetlifyResult(res, event.headers.origin);
   } catch (error) {
+    // Better Auth sometimes throws Response objects directly (not Error objects)
+    // Handle this case by converting the Response to a proper Netlify result
+    if (error instanceof Response) {
+      console.log(`[Tenant Auth] Better Auth returned Response with status ${error.status} for tenant ${tenantId}`);
+      return responseToNetlifyResult(error, event.headers.origin);
+    }
+    
     console.error(`[Tenant Auth] Handler error for tenant ${tenantId}:`, error);
     return {
       statusCode: 500,
