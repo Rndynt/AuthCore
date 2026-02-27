@@ -1,100 +1,196 @@
 # Installation Guide
 
-This guide walks through getting Realmio running from a clean checkout. By the end you will have a
-local instance responding to both tenant and admin authentication requests.
+Panduan ini menjelaskan cara menjalankan Realmio dari awal hingga siap digunakan. Di akhir panduan, Anda akan memiliki instance lokal yang merespons permintaan autentikasi tenant dan admin.
 
 ## 1. Prerequisites
 
 | Dependency | Version | Notes |
 |------------|---------|-------|
-| Node.js | 18.x or 20.x LTS | Required for Fastify server and tooling. |
-| npm | 9+ | Used by default in project scripts. |
-| PostgreSQL | 14+ | Realmio relies on PostgreSQL schemas for isolation. |
-| OpenSSL | — | Needed only to generate secure secrets. |
+| Node.js | 18.x atau 20.x LTS | Diperlukan untuk Fastify server dan tooling. |
+| npm | 9+ | Digunakan oleh project scripts. |
+| PostgreSQL | 14+ | Realmio menggunakan PostgreSQL schemas untuk isolasi data. |
 
-Ensure PostgreSQL is reachable from your development machine and that you have a database prepared
-for Realmio (the provisioning scripts create schemas and tables inside it).
+Pastikan PostgreSQL dapat diakses dari mesin development Anda dan Anda memiliki database yang siap untuk Realmio.
 
 ## 2. Clone & Install
 
 ```bash
-# Clone the repository
-git clone <repository-url> authcore
-cd authcore
+# Clone repository
+git clone https://github.com/Rndynt/Realmio.git realmio
+cd realmio
 
-# Install dependencies
+# Install dependencies backend
 npm install
+
+# Install dependencies admin UI
+cd admin-ui && npm install && cd ..
 ```
 
-The repository includes Prisma client artefacts and SQL templates, so no additional build steps are
-necessary before the first run.
+## 3. Konfigurasi Environment
 
-## 3. Configure Environment
-
-Realmio reads all configuration from a `.env` file in the project root. Start from the template
-below and adapt the values to your environment. Refer to [CONFIGURATION.md](./CONFIGURATION.md) for a
-complete explanation of each variable and the possible operating modes.
+Realmio membaca semua konfigurasi dari file `.env` di root project. Buat file `.env` dari template:
 
 ```bash
-cp CLIENT_ENV_EXAMPLE.md .env # or create manually using the snippet below
+cp .env.example .env
 ```
 
+Edit `.env` sesuai environment Anda:
+
 ```bash
+# Server
+PORT=4000
+BETTER_AUTH_URL=http://localhost:4000
+BETTER_AUTH_SECRET=your-secret-key-minimum-24-characters-long
+
+# CORS / Trusted Origins (pisahkan dengan koma)
+TRUSTED_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:4000
+
 # Database
-DATABASE_URL=postgresql://user:password@localhost:5432/authcore
+DATABASE_URL=postgresql://postgres:password@localhost:5432/authdb
 
-# Platform URL & secrets
-BETTER_AUTH_URL=http://localhost:5000
-BETTER_AUTH_SECRET=$(openssl rand -base64 32)
-TRUSTED_ORIGINS=http://localhost:3000,http://localhost:5000
+# Mode operasi
+AUTH_MODE=multi                    # 'single' atau 'multi'
+NESTED_TENANCY_ENABLED=false       # true untuk nested tenancy
 
-# Mode selection
-AUTH_MODE=multi
-NESTED_TENANCY_ENABLED=false
-TENANT_ID=
-TENANT_SCHEMA=
+# Untuk AUTH_MODE=single saja:
+# TENANT_ID=my-tenant
+# TENANT_SCHEMA=public
 
-# Optional flags
+# Optional
 ENABLE_DEV_ENDPOINTS=false
-ADMIN_API_KEY=
 ```
 
-After editing `.env`, run a quick sanity check to confirm the configuration parses correctly:
+> **Penting:** `BETTER_AUTH_SECRET` harus minimal 24 karakter. Generate dengan:
+> ```bash
+> openssl rand -base64 32
+> ```
+
+## 4. Setup Database
+
+### 4.1 Buat Database
 
 ```bash
-npm run check
+# Buat database
+createdb authdb
+
+# Buat role realmio (diperlukan oleh migration)
+psql -d authdb -c "CREATE ROLE realmio WITH LOGIN PASSWORD 'realmio';"
 ```
 
-If the command exits without errors the environment variables satisfy the runtime schema in
-`src/env.ts`.
+### 4.2 Jalankan Prisma Migrations
 
-## 4. Provision Database Assets
+```bash
+# Generate Prisma client
+npx prisma generate
 
-With configuration in place you can create the required schemas, tables, and seed data. See
-[PROVISIONING.md](./PROVISIONING.md) for the detailed commands. The short version is:
+# Jalankan semua migrations
+npx prisma migrate deploy
+```
 
-1. Run `scripts/setup-single.sh`, `scripts/setup-multi.sh`, or `scripts/setup-nested.sh` depending on
-   your chosen `AUTH_MODE`.
-2. Run `scripts/setup-admin.sh` to ensure the `authcore_system` schema exists.
-3. Seed the root admin account via `npx tsx scripts/seed-admin.ts`.
+Migrations akan membuat:
+- Tabel-tabel Better Auth di schema `public` (users, accounts, sessions, dll.)
+- Schema `authcore_system` untuk admin dashboard dengan kolom-kolom yang kompatibel dengan Prisma
+- Tabel `tenants`, `applications`, `tenant_audit_log` di schema `public`
+- Tabel `two_factor` untuk 2FA support
 
-These steps are idempotent and safe to rerun.
+### 4.3 Buat Admin User
 
-## 5. Start the Server
+Setelah migrations berhasil, buat admin user pertama:
+
+```bash
+# Daftarkan admin user via API (server harus sudah berjalan)
+curl -X POST http://localhost:4000/admin/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@realmio.id","password":"Admin123!","name":"Admin"}'
+
+# Update role menjadi admin di database
+psql -d authdb -c "UPDATE authcore_system.users SET role = 'admin' WHERE email = 'admin@realmio.id';"
+```
+
+> **Catatan:** Ganti password default setelah login pertama.
+
+## 5. Jalankan Server
+
+### Backend API (port 4000)
 
 ```bash
 npm run dev
 ```
 
-By default the Fastify server listens on `http://localhost:5000`. The logs will display the active
-mode and feature flags at startup.
+Server Fastify akan berjalan di `http://localhost:4000`.
 
-## 6. Verify Access
+### Admin UI (port 3001)
 
-Follow the flow in [TESTING.md](./TESTING.md) to confirm:
+```bash
+cd admin-ui
+NEXT_PUBLIC_API_URL=http://localhost:4000 npm run dev
+```
 
-- The admin user can authenticate against `/admin/auth/sign-in/email`.
-- Tenants can sign up and sign in via `/api/auth/*`.
-- Sessions can be retrieved with `/me` (multi-tenant) or `/api/auth/get-session` (single-tenant).
+Admin UI akan berjalan di `http://localhost:3001`.
 
-Once these checks succeed your environment is ready for dashboard and tenant development.
+### Script Startup Otomatis
+
+Gunakan script `start-local.sh` untuk menjalankan semua sekaligus:
+
+```bash
+chmod +x start-local.sh
+bash start-local.sh
+```
+
+## 6. Verifikasi
+
+Setelah server berjalan, verifikasi dengan:
+
+```bash
+# Health check backend
+curl http://localhost:4000/healthz
+
+# Akses admin UI
+open http://localhost:3001/login
+```
+
+**Kredensial Admin:**
+- Email: `admin@realmio.id`
+- Password: `Admin123!`
+
+Lihat [TESTING.md](./TESTING.md) untuk panduan testing lengkap.
+
+## 7. Troubleshooting
+
+### Error: BETTER_AUTH_SECRET too short
+```
+Environment validation failed:
+  - BETTER_AUTH_SECRET: String must contain at least 24 character(s)
+```
+**Solusi:** Set `BETTER_AUTH_SECRET` dengan nilai minimal 24 karakter di `.env`.
+
+### Error: database "authdb" does not exist
+**Solusi:** Buat database terlebih dahulu:
+```bash
+createdb authdb
+```
+
+### Error: role "realmio" does not exist
+**Solusi:** Buat role realmio:
+```bash
+psql -d authdb -c "CREATE ROLE realmio WITH LOGIN PASSWORD 'realmio';"
+```
+
+### Error: Can't reach database server
+**Solusi:** Pastikan PostgreSQL berjalan:
+```bash
+# Linux
+pg_ctlcluster 14 main start
+# atau
+service postgresql start
+```
+
+### Admin login gagal (500 error)
+**Solusi:** Pastikan schema `authcore_system` sudah dibuat oleh migration:
+```bash
+psql -d authdb -c "\dt authcore_system.*"
+```
+Jika kosong, jalankan ulang migration:
+```bash
+npx prisma migrate deploy
+```

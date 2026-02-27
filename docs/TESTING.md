@@ -1,160 +1,276 @@
 # Testing Guide
 
-Use this guide to confirm that Realmio is configured correctly after installation and provisioning.
-Each section focuses on a specific surface: admin authentication, tenant authentication, and
-multi-tenant isolation.
+Panduan ini untuk memverifikasi bahwa Realmio dikonfigurasi dengan benar setelah instalasi dan provisioning.
 
 > **Prerequisites**
 >
-> - The server is running (`npm run dev`).
-> - `DATABASE_URL` points to the database you provisioned.
-> - You have seeded the root admin via `npx tsx scripts/seed-admin.ts`.
-> - `curl` and `jq` are installed locally.
+> - Server backend berjalan di `http://localhost:4000` (`npm run dev`)
+> - Admin UI berjalan di `http://localhost:3001` (opsional)
+> - `DATABASE_URL` mengarah ke database yang sudah di-provision
+> - Admin user sudah dibuat (lihat [INSTALLATION.md](./INSTALLATION.md))
+> - `curl` terinstall
 
-## 1. Admin Authentication
+## 1. Health Check
 
-### 1.1 Sign In
+```bash
+curl http://localhost:4000/healthz
+```
+
+Expected response:
+```json
+{
+  "ok": true,
+  "mode": "multi",
+  "timestamp": "2026-02-27T...",
+  "features": {
+    "tenantRegistry": true,
+    "nestedTenancy": false
+  },
+  "connections": {
+    "healthy": true,
+    "issues": [],
+    "metrics": {
+      "activeConnections": 0,
+      "maxConnections": 50,
+      "utilizationPercent": 0
+    }
+  }
+}
+```
+
+## 2. Admin Authentication
+
+### 2.1 Sign Up Admin (Pertama Kali)
+
+```bash
+curl -X POST http://localhost:4000/admin/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@realmio.id","password":"Admin123!","name":"Admin"}'
+```
+
+Expected: HTTP `200` dengan user object.
+
+Setelah sign-up, set role admin:
+```bash
+psql -d authdb -c "UPDATE authcore_system.users SET role = 'admin' WHERE email = 'admin@realmio.id';"
+```
+
+### 2.2 Sign In Admin
 
 ```bash
 curl -i \
   -c admin-cookie.txt \
   -b admin-cookie.txt \
-  -X POST http://localhost:5000/admin/auth/sign-in/email \
-  -H 'Content-Type: application/json' \
-  --data '{"email":"root@realmio.local","password":"Realmio123!"}'
+  -X POST http://localhost:4000/admin/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@realmio.id","password":"Admin123!"}'
 ```
 
-Expected outcome:
+Expected:
+- HTTP `200`
+- Header `Set-Cookie: authcore_admin_session=...`
+- Response body berisi user object dengan `role: "admin"`
 
-- HTTP `200` response.
-- `Set-Cookie: authcore_admin_session=...` header present.
-- Response body includes the admin user object.
-
-If you receive `401` ensure the seed script ran against the same database as the server.
-
-### 1.2 Session Verification
+### 2.3 Verifikasi Session Admin
 
 ```bash
 curl -i \
   -c admin-cookie.txt \
   -b admin-cookie.txt \
-  http://localhost:5000/admin/auth/get-session
+  http://localhost:4000/admin/auth/get-session
 ```
 
-Expected outcome: JSON payload with `session` and `user` objects. This confirms cookies are signed
-with the configured `BETTER_AUTH_SECRET`.
+Expected: JSON dengan `session` dan `user` objects.
 
-### 1.3 Admin APIs
+### 2.4 Admin APIs
 
-With a valid admin session you can call dashboard endpoints:
+```bash
+# List tenants
+curl -s \
+  -c admin-cookie.txt \
+  -b admin-cookie.txt \
+  http://localhost:4000/admin/api/tenants
+
+# List users
+curl -s \
+  -c admin-cookie.txt \
+  -b admin-cookie.txt \
+  http://localhost:4000/admin/api/users
+```
+
+Expected: `{"tenants":[]}` (kosong jika belum ada tenant).
+
+## 3. Tenant Authentication (Multi Mode)
+
+### 3.1 Buat Tenant Dulu
 
 ```bash
 curl -s \
   -c admin-cookie.txt \
   -b admin-cookie.txt \
-  http://localhost:5000/admin/api/tenants | jq
+  -X POST http://localhost:4000/admin/api/tenants \
+  -H "Content-Type: application/json" \
+  -d '{"id":"test-app","name":"Test Application","slug":"test-app"}'
 ```
 
-The response lists tenants known to the registry. Use this command to verify new tenants appear after
-provisioning.
+### 3.2 Register User Tenant
 
-## 2. Tenant Authentication (Single Mode)
+```bash
+curl -i \
+  -c tenant-cookie.txt \
+  -b tenant-cookie.txt \
+  -X POST http://localhost:4000/api/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: test-app" \
+  -d '{"email":"user@example.com","password":"Passw0rd!","name":"Test User"}'
+```
 
-Run this section only if `AUTH_MODE=single`.
+Expected: HTTP `200` dengan user object.
+
+### 3.3 Login User Tenant
+
+```bash
+curl -i \
+  -c tenant-cookie.txt \
+  -b tenant-cookie.txt \
+  -X POST http://localhost:4000/api/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: test-app" \
+  -d '{"email":"user@example.com","password":"Passw0rd!"}'
+```
+
+Expected: HTTP `200` dengan session token.
+
+### 3.4 Check Session Tenant
+
+```bash
+curl -s \
+  -c tenant-cookie.txt \
+  -b tenant-cookie.txt \
+  -H "X-Tenant-Id: test-app" \
+  http://localhost:4000/api/auth/get-session
+```
+
+Expected: JSON dengan `session` dan `user` objects.
+
+### 3.5 Request Tanpa Tenant Header
+
+```bash
+curl -s http://localhost:4000/api/auth/get-session
+```
+
+Expected: HTTP `400` atau `401` dengan error `tenant_required`.
+
+## 4. Tenant Authentication (Single Mode)
+
+Jalankan bagian ini hanya jika `AUTH_MODE=single`.
 
 ```bash
 # Sign up
 curl -i \
   -c tenant-cookie.txt \
   -b tenant-cookie.txt \
-  -X POST http://localhost:5000/api/auth/sign-up/email \
-  -H 'Content-Type: application/json' \
-  --data '{"email":"single@example.com","password":"Passw0rd!","name":"Single Tenant"}'
+  -X POST http://localhost:4000/api/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"Passw0rd!","name":"User"}'
 
 # Sign in
 curl -i \
   -c tenant-cookie.txt \
   -b tenant-cookie.txt \
-  -X POST http://localhost:5000/api/auth/sign-in/email \
-  -H 'Content-Type: application/json' \
-  --data '{"email":"single@example.com","password":"Passw0rd!"}'
+  -X POST http://localhost:4000/api/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"Passw0rd!"}'
 
 # Session check
 curl -s \
   -c tenant-cookie.txt \
   -b tenant-cookie.txt \
-  http://localhost:5000/api/auth/get-session | jq
+  http://localhost:4000/api/auth/get-session
 ```
 
-A successful session response confirms the fixed schema defined by `TENANT_SCHEMA` is active.
+## 5. Isolasi Data
 
-## 3. Tenant Authentication (Multi/Hybrid Mode)
-
-These tests rely on the `X-Tenant-Id` header to pick a tenant. Replace `pos` with a tenant slug
-present in `public.tenants`.
+Verifikasi bahwa data tersimpan di schema yang benar:
 
 ```bash
-TENANT_ID=pos
+# Admin users (harus ada di authcore_system)
+psql -d authdb -c "SELECT COUNT(*) FROM authcore_system.users;"
 
-# Sign up a tenant user
-curl -i \
-  -c ${TENANT_ID}-cookie.txt \
-  -b ${TENANT_ID}-cookie.txt \
-  -X POST http://localhost:5000/api/auth/sign-up/email \
-  -H 'Content-Type: application/json' \
-  -H "X-Tenant-Id: ${TENANT_ID}" \
-  --data '{"email":"tenant-${TENANT_ID}@example.com","password":"Passw0rd!","name":"Tenant User"}'
+# Tenant users (harus ada di schema tenant)
+psql -d authdb -c "SELECT COUNT(*) FROM tenant_test-app.user;"
 
-# Sign in
-curl -i \
-  -c ${TENANT_ID}-cookie.txt \
-  -b ${TENANT_ID}-cookie.txt \
-  -X POST http://localhost:5000/api/auth/sign-in/email \
-  -H 'Content-Type: application/json' \
-  -H "X-Tenant-Id: ${TENANT_ID}" \
-  --data '{"email":"tenant-${TENANT_ID}@example.com","password":"Passw0rd!"}'
-
-# Resolve session with tenant context
-curl -s \
-  -c ${TENANT_ID}-cookie.txt \
-  -b ${TENANT_ID}-cookie.txt \
-  -H "X-Tenant-Id: ${TENANT_ID}" \
-  http://localhost:5000/me | jq
+# Tenant registry
+psql -d authdb -c "SELECT id, slug, schema_name, status FROM public.tenants;"
 ```
 
-Expected outcome:
-
-- The `/me` payload contains `tenant.id` and `tenant.slug` fields.
-- Requests without the header return `401` with `{ "error": "tenant_required" }` (handled by
-  `tenantMiddleware`).
-
-## 4. Isolation Checks
-
-Confirm that users are written to the correct schemas:
+## 6. Security Headers
 
 ```bash
-# Replace with your tenant schemas
-psql $DATABASE_URL -c "SELECT COUNT(*) FROM authcore_system.users;"
-psql $DATABASE_URL -c "SELECT COUNT(*) FROM tenant_pos.users;"
-psql $DATABASE_URL -c "SELECT COUNT(*) FROM tenant_crypto.users;"
+curl -I http://localhost:4000/healthz
 ```
 
-Counts should only increment for the tenant you interacted with. If admin users appear in `public`
-re-run `npx tsx scripts/seed-admin.ts` and verify the admin Prisma client configuration.
+Expected headers:
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `X-XSS-Protection: 1; mode=block`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `X-Request-Id: <uuid>`
 
-## 5. Optional: Nested Tenancy
-
-When `NESTED_TENANCY_ENABLED=true`, confirm sub-tenant data is available:
+## 7. Rate Limiting
 
 ```bash
-curl -s \
-  -c admin-cookie.txt \
-  -b admin-cookie.txt \
-  http://localhost:5000/admin/sub-tenants/<applicationId> | jq
+# Test rate limit (kirim banyak request cepat)
+for i in {1..15}; do
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    -X POST http://localhost:4000/api/auth/sign-in/email \
+    -H "Content-Type: application/json" \
+    -H "X-Tenant-Id: test-app" \
+    -d '{"email":"wrong@example.com","password":"wrong"}'
+done
 ```
 
-Replace `<applicationId>` with an ID from `public.applications`. The response lists sub-tenants cached
-by `SubTenantManager`.
+Expected: Setelah beberapa request, mendapat HTTP `429 Too Many Requests`.
 
-Successful completion of these checks validates admin access, tenant flows, and schema isolation for
-your chosen deployment mode.
+## 8. Per-Tenant Health Check
+
+```bash
+curl http://localhost:4000/tenant/test-app/health
+```
+
+Expected:
+```json
+{
+  "ok": true,
+  "tenantId": "test-app",
+  "name": "Test Application",
+  "status": "active",
+  "schemaValid": true,
+  "hasActiveConnection": false
+}
+```
+
+## 9. Admin Dashboard (UI)
+
+1. Buka `http://localhost:3001/login`
+2. Login dengan `admin@realmio.id` / `Admin123!`
+3. Verifikasi dashboard menampilkan:
+   - Daftar tenants
+   - Monitoring metrics
+   - Audit log
+   - Security settings
+
+## 10. Checklist Verifikasi
+
+- [ ] `GET /healthz` → `{"ok":true}`
+- [ ] Admin sign-up berhasil
+- [ ] Admin sign-in berhasil (HTTP 200)
+- [ ] Admin session valid
+- [ ] Admin API `/admin/api/tenants` accessible
+- [ ] Tenant bisa dibuat via admin API
+- [ ] Tenant user bisa register
+- [ ] Tenant user bisa login
+- [ ] Session tenant valid
+- [ ] Data terisolasi per schema
+- [ ] Security headers ada
+- [ ] Admin UI accessible di port 3001
