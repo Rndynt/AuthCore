@@ -66,10 +66,22 @@ const app = Fastify({
   genReqId: () => crypto.randomUUID()  // Enable request ID generation (Poin 14)
 });
 
-// Add request ID to all responses (Poin 14)
+// Add request ID and security headers to all responses
 app.addHook('onRequest', async (request, reply) => {
   const requestId = request.id || randomUUID();
   reply.header('X-Request-Id', requestId);
+  
+  // Security headers
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('X-XSS-Protection', '1; mode=block');
+  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  
+  // HSTS in production
+  if (isProduction) {
+    reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  }
 });
 
 if (isDev && !prettyTransport) {
@@ -94,6 +106,33 @@ app.register(cors, {
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-api-key", "X-Tenant-Id", "X-Request-Id"]
+});
+
+// IP Blocking middleware - check against security settings blocklist
+app.addHook('onRequest', async (request, reply) => {
+  // Skip IP blocking for health checks and static assets
+  const url = request.url;
+  if (url === '/healthz' || url.startsWith('/_next/') || url.includes('.')) {
+    return;
+  }
+  
+  try {
+    const { tenantService: ts } = await import('./application/tenant-service.js');
+    const ip = request.ip;
+    if (ip) {
+      const result = await ts.isIpBlocked(ip);
+      if (result.blocked) {
+        reply.code(403).send({
+          error: 'IP_BLOCKED',
+          message: 'Your IP address has been blocked',
+          reason: result.entry?.reason
+        });
+        return;
+      }
+    }
+  } catch {
+    // Don't block requests if IP check fails - fail open for availability
+  }
 });
 
 // Global Error Handler with centralized error handling (Poin 4)
@@ -258,6 +297,7 @@ function registerRoutes() {
     app.route({
       method: ["GET", "POST"],
       url: "/api/auth/*",
+      config: { rateLimit: createAuthRateLimit() },
       onRequest: tenantMiddleware,
       handler: (request: TenantRequest, reply) => forwardTenantAuth(request, reply)
     });
@@ -393,16 +433,80 @@ function registerRoutes() {
   });
 
   // Health check route (all modes)
-  app.get("/healthz", async (req, reply) => {
-    reply.send({ 
+  app.get("/healthz", {
+    config: { rateLimit: createHealthRateLimit() }
+  }, async (req, reply) => {
+    const health: Record<string, unknown> = {
       ok: true,
       mode: authConfig.mode,
+      timestamp: new Date().toISOString(),
       features: {
         tenantRegistry: features.tenantRegistry,
         nestedTenancy: features.nestedTenancy
       }
-    });
+    };
+
+    // Add connection health in multi-tenant mode
+    if (authConfig.mode !== 'single') {
+      try {
+        const connectionHealth = tenantManager.getHealthStatus();
+        health.connections = {
+          healthy: connectionHealth.healthy,
+          issues: connectionHealth.issues,
+          metrics: connectionHealth.metrics
+        };
+        if (!connectionHealth.healthy) {
+          health.ok = false;
+        }
+      } catch {
+        health.connections = { healthy: false, error: 'Failed to get connection health' };
+        health.ok = false;
+      }
+    }
+
+    const statusCode = health.ok ? 200 : 503;
+    reply.status(statusCode).send(health);
   });
+
+  // Tenant-specific health check (multi-tenant mode)
+  if (authConfig.mode !== 'single') {
+    app.get("/tenant/:tenantId/health", {
+      preHandler: async (request, reply) => {
+        const { tenantId } = request.params as { tenantId: string };
+        const tenant = tenantManager.resolveTenant(tenantId);
+        if (!tenant) {
+          reply.code(404).send({ error: 'TENANT_NOT_FOUND', message: `Tenant '${tenantId}' not found` });
+          return;
+        }
+        (request as any).resolvedTenant = tenant;
+      }
+    }, async (req, reply) => {
+      const tenant = (req as any).resolvedTenant;
+      
+      try {
+        const schemaValid = await tenantManager.validateTenantSchema(tenant.schema_name);
+        const hasConnection = tenantManager.getStats().connectionDetails.some(
+          (c: any) => c.tenantId === tenant.id
+        );
+
+        reply.send({
+          ok: tenant.status === 'active' && schemaValid,
+          tenantId: tenant.id,
+          name: tenant.name,
+          status: tenant.status,
+          schemaValid,
+          hasActiveConnection: hasConnection,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        reply.code(500).send({
+          ok: false,
+          tenantId: tenant.id,
+          error: 'Health check failed'
+        });
+      }
+    });
+  }
 }
 
 const startServer = async () => {

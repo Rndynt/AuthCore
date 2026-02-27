@@ -183,7 +183,8 @@ export async function tenantMiddleware(
   request.tenantId = tenant.id;
   request.tenantSlug = tenant.slug;
 
-  console.log(`[Tenant] Request from tenant: ${tenant.id} (${tenant.name})`);
+  // Use request logger instead of console.log for structured logging
+  request.log?.debug({ tenantId: tenant.id, tenantName: tenant.name }, '[Tenant] Request from tenant');
 }
 
 /**
@@ -205,7 +206,7 @@ export async function optionalTenantMiddleware(
     if (tenant && tenant.status === 'active') {
       request.tenantId = tenant.id;
       request.tenantSlug = tenant.slug;
-      console.log(`[Tenant] Optional tenant context: ${tenant.id}`);
+      request.log?.debug({ tenantId: tenant.id }, '[Tenant] Optional tenant context');
     }
   }
 }

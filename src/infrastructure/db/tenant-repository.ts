@@ -6,10 +6,14 @@ import { TenantValidationError } from '../../domain/tenant/errors.js';
 import type { SecuritySettings } from '../../domain/tenant/security-settings.js';
 import type { CreateTenantInput, Tenant, TenantStatus } from '../../domain/tenant/tenant.js';
 import type { TenantRepository } from '../../domain/tenant/tenant-repository.js';
+import { env, POOL_CONFIG } from '../../env.js';
 
 export class PgTenantRepository implements TenantRepository {
   private pool = new Pool({
-    connectionString: process.env.DATABASE_URL
+    connectionString: env.DATABASE_URL,
+    max: POOL_CONFIG.max,
+    idleTimeoutMillis: POOL_CONFIG.idleTimeoutMillis,
+    connectionTimeoutMillis: POOL_CONFIG.connectionTimeoutMillis,
   });
 
   private adminSettingsInitialized = false;
@@ -345,20 +349,65 @@ export class PgTenantRepository implements TenantRepository {
   private async provisionTenantSchema(client: PoolClient, tenant: Tenant): Promise<void> {
     console.log(`[TenantRepository] Provisioning schema: ${tenant.schema_name}`);
 
+    // Better Auth v1.x table names as defined in Prisma schema @@map directives
+    // These are the actual PostgreSQL table names (not Prisma model names)
     const betterAuthTables = [
-      'users', 'accounts', 'sessions', 'verificationtokens',
-      'api_keys', 'organizations', 'organization_members',
-      'verification', 'member', 'invitation', 'apikey', 'jwks'
+      'user',           // Better Auth User model -> @@map("user")
+      'session',        // Better Auth Session model -> @@map("session")
+      'account',        // Better Auth Account model -> @@map("account")
+      'verification',   // Better Auth Verification model -> @@map("verification")
+      'organization',   // Better Auth Organization model -> @@map("organization")
+      'member',         // Better Auth Member model -> @@map("member")
+      'invitation',     // Better Auth Invitation model -> @@map("invitation")
+      'apikey',         // Better Auth ApiKey model -> @@map("apikey")
+      'jwks',           // Better Auth Jwks model -> @@map("jwks")
+      'two_factor',     // Better Auth TwoFactor model -> @@map("two_factor")
+      // Legacy table names (from older schema versions - include for compatibility)
+      'users',
+      'accounts',
+      'sessions',
+      'verificationtokens',
+      'api_keys',
+      'organizations',
+      'organization_members',
     ];
 
     await client.query(`CREATE SCHEMA IF NOT EXISTS "${tenant.schema_name}"`);
     console.log(`[TenantRepository] Schema created: ${tenant.schema_name}`);
 
+    // Get actual tables that exist in public schema to avoid errors
+    const existingTablesResult = await client.query<{ tablename: string }>(`
+      SELECT tablename FROM pg_tables
+      WHERE schemaname = 'public'
+        AND tablename = ANY($1::text[])
+    `, [betterAuthTables]);
+
+    const existingTables = new Set(existingTablesResult.rows.map(r => r.tablename));
+    
+    if (existingTables.size === 0) {
+      console.warn(`[TenantRepository] No Better Auth tables found in public schema. Ensure Better Auth migrations have been run.`);
+    }
+
     for (const table of betterAuthTables) {
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS "${tenant.schema_name}"."${table}"
-        (LIKE "public"."${table}" INCLUDING ALL)
-      `);
+      if (!existingTables.has(table)) {
+        // Only warn for core tables, skip silently for optional ones
+        const coreTables = ['user', 'session', 'account', 'verification'];
+        if (coreTables.includes(table)) {
+          console.warn(`[TenantRepository] Core table "${table}" not found in public schema, skipping`);
+        }
+        continue;
+      }
+
+      try {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS "${tenant.schema_name}"."${table}"
+          (LIKE "public"."${table}" INCLUDING ALL)
+        `);
+        console.log(`[TenantRepository] Cloned table: ${tenant.schema_name}.${table}`);
+      } catch (tableError) {
+        console.error(`[TenantRepository] Failed to clone table "${table}":`, tableError);
+        throw tableError;
+      }
     }
 
     console.log(`[TenantRepository] Tables cloned for: ${tenant.schema_name}`);

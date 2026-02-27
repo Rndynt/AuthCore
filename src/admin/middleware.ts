@@ -38,14 +38,24 @@ export async function adminSessionMiddleware(
       });
     }
     
+    // Check if user has admin role
+    const userRole = (session.user as any).role;
+    if (userRole !== 'admin' && userRole !== 'super_admin') {
+      request.log?.warn({ userId: session.user.id, role: userRole }, '[Admin] Access denied - insufficient role');
+      return reply.code(403).send({
+        error: 'FORBIDDEN',
+        message: 'Admin access required. Your account does not have admin privileges.'
+      });
+    }
+    
     // Attach admin user to request
     (request as any).adminUser = session.user;
     (request as any).adminSession = session.session;
     
-    console.log(`[Admin] Authenticated: ${session.user.email}`);
+    request.log?.debug({ userId: session.user.id, email: session.user.email }, '[Admin] Authenticated');
     
   } catch (error) {
-    console.error('[Admin] Session validation error:', error);
+    request.log?.error({ error }, '[Admin] Session validation error');
     return reply.code(401).send({
       error: 'UNAUTHORIZED',
       message: 'Invalid or expired admin session'

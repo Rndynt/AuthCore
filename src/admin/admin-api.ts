@@ -4,6 +4,13 @@ import type { SecuritySettings } from "../domain/tenant/security-settings.js";
 import type { LogEvent } from "../utils/log-stream.js";
 import { metricsStore } from "../utils/metrics-store.js";
 import { tenantManager } from "../multi-tenant/connection-manager.js";
+import {
+  registerWebhook,
+  unregisterWebhook,
+  getWebhooks,
+  getWebhookStats,
+  type WebhookEventType,
+} from "../utils/webhook.js";
 
 const encoder = new TextEncoder();
 
@@ -12,7 +19,8 @@ interface AdminSession {
     id: string;
     email: string;
     name: string | null;
-    role: string | null;
+    role?: string | null;
+    [key: string]: unknown;
   };
   session: any;
 }
@@ -35,8 +43,8 @@ export interface AdminApiTenantService {
   getTenantMetrics(id: string): Promise<unknown>;
   suspendTenant(id: string): Promise<void>;
   activateTenant(id: string): Promise<void>;
-  revokeUserSessions(tenantId: string, userId: string): Promise<void>;
-  createSupportSession(tenantId: string, userId: string, minutes?: number): Promise<string>;
+  revokeUserSessions(tenantId: string, userId: string): Promise<number | void>;
+  createSupportSession(tenantId: string, userId: string, minutes?: number): Promise<{ token: string; expiresAt: Date }>;
   searchUsersAcrossTenants(options: {
     query?: string;
     tenantId?: string;
@@ -583,6 +591,66 @@ export function createAdminApiHandlers(deps: AdminApiDependencies) {
           if (resource.length === 1 && method === "GET") {
             const data = await metricsStore.getTimeSeriesData();
             return jsonResponse({ data });
+          }
+          break;
+        }
+
+        case "webhooks": {
+          if (resource.length === 1) {
+            if (method === "GET") {
+              const webhooks = getWebhooks();
+              return jsonResponse({ webhooks, stats: getWebhookStats() });
+            }
+
+            if (method === "POST") {
+              const body = await parseJsonBody(request);
+              if (!body?.url || typeof body.url !== 'string') {
+                return jsonResponse({ error: "VALIDATION_ERROR", message: "url is required" }, { status: 400 });
+              }
+              if (!body?.secret || typeof body.secret !== 'string' || body.secret.length < 16) {
+                return jsonResponse({ error: "VALIDATION_ERROR", message: "secret must be at least 16 characters" }, { status: 400 });
+              }
+
+              const events: WebhookEventType[] | '*' = body.events === '*' ? '*' : (Array.isArray(body.events) ? body.events : '*');
+              
+              const webhook = registerWebhook({
+                url: body.url,
+                secret: body.secret,
+                events,
+                enabled: body.enabled !== false,
+              });
+
+              await deps.tenantService.logAuditAction(
+                adminUser.id,
+                "register_webhook",
+                "system",
+                webhook.id,
+                { url: body.url, events },
+                ip
+              );
+
+              return jsonResponse({ webhook: { ...webhook, secret: '[REDACTED]' } }, { status: 201 });
+            }
+          }
+
+          if (resource.length === 2) {
+            const webhookId = resource[1];
+
+            if (method === "DELETE") {
+              const deleted = unregisterWebhook(webhookId);
+              if (!deleted) {
+                return jsonResponse({ error: "Webhook not found" }, { status: 404 });
+              }
+              await deps.tenantService.logAuditAction(
+                adminUser.id,
+                "unregister_webhook",
+                "system",
+                webhookId,
+                {},
+                ip
+              );
+              return jsonResponse({ message: "Webhook unregistered" });
+            }
           }
           break;
         }
