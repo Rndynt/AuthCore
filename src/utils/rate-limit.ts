@@ -122,7 +122,8 @@ function onRateLimitExceeded(request: FastifyRequest, key: string): void {
  */
 export async function registerRateLimiting(app: FastifyInstance): Promise<void> {
   // Register the rate limit plugin
-  await app.register(rateLimit, {
+  // Using 'as any' to handle version compatibility issues with @fastify/rate-limit types
+  await app.register(rateLimit as any, {
     global: false, // We'll apply rate limits per route group
     nameSpace: 'realmio:rate-limit:',
     continueExceeding: true,

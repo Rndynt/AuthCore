@@ -71,10 +71,14 @@ export class TenantConnectionManager {
   constructor(config: Partial<ConnectionManagerConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     
+    // Import pool config from env for consistent configuration
+    const poolMax = env.POOL_MAX || 20;
+    const poolIdleTimeout = env.POOL_IDLE_TIMEOUT_MS || 30000;
+    
     this.pool = new Pool({
       connectionString: env.DATABASE_URL,
-      max: 20,
-      idleTimeoutMillis: 30000,
+      max: poolMax,
+      idleTimeoutMillis: poolIdleTimeout,
       connectionTimeoutMillis: 10000,
     });
 
@@ -178,7 +182,7 @@ export class TenantConnectionManager {
         lastUsedAt: new Date(),
         totalRequests: 0,
         disconnectAttempts: 0,
-        schemaValidated: true
+        schemaValidated: false  // Will be validated on first use
       });
 
       // Add to LRU
@@ -607,7 +611,8 @@ export class TenantConnectionManager {
         createdAt: new Date(),
         lastUsedAt: new Date(),
         totalRequests: 1,
-        disconnectAttempts: 0
+        disconnectAttempts: 0,
+        schemaValidated: false
       });
       return;
     }

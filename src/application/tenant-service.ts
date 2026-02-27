@@ -17,6 +17,7 @@ import type { TenantRepository } from '../domain/tenant/tenant-repository.js';
 import { PgTenantRepository } from '../infrastructure/db/tenant-repository.js';
 
 import { isIpInBlocklist, isValidIpOrCidr, normalizeIp, convertIpv4Mapped } from '../utils/ip-utils.js';
+import { emitWebhookEvent } from '../utils/webhook.js';
 
 export interface TenantMetrics {
   userCount: number;
@@ -104,6 +105,14 @@ export class TenantService {
 
     console.log(`[TenantService] ✅ Tenant ${tenantRecord.id} provisioned successfully`);
 
+    // Emit webhook event (non-blocking)
+    emitWebhookEvent('tenant.created', {
+      tenantId: tenantRecord.id,
+      name: tenantRecord.name,
+      slug: tenantRecord.slug,
+      schemaName: tenantRecord.schema_name,
+    }).catch(err => console.error('[TenantService] Webhook error:', err));
+
     return tenantRecord;
   }
 
@@ -124,6 +133,12 @@ export class TenantService {
     });
 
     console.log(`[TenantService] Tenant ${tenantId} suspended`);
+
+    // Emit webhook event (non-blocking)
+    emitWebhookEvent('tenant.suspended', {
+      tenantId,
+      name: tenant.name,
+    }, tenantId).catch(err => console.error('[TenantService] Webhook error:', err));
   }
 
   /**
@@ -143,6 +158,12 @@ export class TenantService {
     });
 
     console.log(`[TenantService] Tenant ${tenantId} activated`);
+
+    // Emit webhook event (non-blocking)
+    emitWebhookEvent('tenant.activated', {
+      tenantId,
+      name: tenant.name,
+    }, tenantId).catch(err => console.error('[TenantService] Webhook error:', err));
   }
 
   /**
@@ -162,6 +183,12 @@ export class TenantService {
     });
 
     console.log(`[TenantService] Tenant ${tenantId} deleted (soft)`);
+
+    // Emit webhook event (non-blocking)
+    emitWebhookEvent('tenant.deleted', {
+      tenantId,
+      name: tenant.name,
+    }, tenantId).catch(err => console.error('[TenantService] Webhook error:', err));
   }
 
   /**
