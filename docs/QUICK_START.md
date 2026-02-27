@@ -1,183 +1,229 @@
 # ⚡ Quick Start Guide
 
-Panduan cepat untuk mulai menggunakan Realmio dalam 5 menit.
+Panduan cepat untuk mulai menggunakan Realmio dalam 10 menit.
 
-## 🎯 Test Realmio (Tanpa Code)
+## 🚀 Setup Lokal (Development)
 
-### 1. Sign Up User Baru
+### 1. Clone & Install
+
 ```bash
-curl -X POST https://0xauthx0.netlify.app/api/auth/sign-up/email \
+git clone https://github.com/Rndynt/Realmio.git realmio
+cd realmio
+npm install
+```
+
+### 2. Setup Database
+
+```bash
+# Buat database PostgreSQL
+createdb authdb
+psql -d authdb -c "CREATE ROLE realmio WITH LOGIN PASSWORD 'realmio';"
+
+# Jalankan migrations
+npx prisma generate
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/authdb" npx prisma migrate deploy
+```
+
+### 3. Konfigurasi .env
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+```bash
+PORT=4000
+BETTER_AUTH_URL=http://localhost:4000
+BETTER_AUTH_SECRET=your-secret-key-minimum-24-characters-long
+TRUSTED_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:4000
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/authdb
+AUTH_MODE=multi
+```
+
+### 4. Jalankan Server
+
+```bash
+# Terminal 1: Backend API
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/authdb" \
+BETTER_AUTH_SECRET="your-secret-key-minimum-24-characters-long" \
+npm run dev
+
+# Terminal 2: Admin UI
+cd admin-ui
+NEXT_PUBLIC_API_URL=http://localhost:4000 npm run dev
+```
+
+### 5. Buat Admin User
+
+```bash
+# Daftarkan admin
+curl -X POST http://localhost:4000/admin/auth/sign-up/email \
   -H "Content-Type: application/json" \
-  -d '{
-    "email": "yourname@example.com",
-    "password": "YourSecurePass123!",
-    "name": "Your Name"
-  }'
+  -d '{"email":"admin@realmio.id","password":"Admin123!","name":"Admin"}'
+
+# Set role admin
+psql -d authdb -c "UPDATE authcore_system.users SET role = 'admin' WHERE email = 'admin@realmio.id';"
 ```
 
-**Expected Response:**
-```json
-{
-  "token": "abc123...",
-  "user": {
-    "id": "user_id",
-    "email": "yourname@example.com",
-    "name": "Your Name"
-  }
-}
-```
+### 6. Akses Dashboard
 
-### 2. Login (Sign In)
+Buka browser: **http://localhost:3001/login**
+
+Login dengan:
+- Email: `admin@realmio.id`
+- Password: `Admin123!`
+
+---
+
+## 🎯 Test API via curl
+
+### Admin Login
 ```bash
-curl -X POST https://0xauthx0.netlify.app/api/auth/sign-in/email \
+curl -c admin-cookie.txt -b admin-cookie.txt \
+  -X POST http://localhost:4000/admin/auth/sign-in/email \
   -H "Content-Type: application/json" \
-  -d '{
-    "email": "yourname@example.com",
-    "password": "YourSecurePass123!"
-  }'
+  -d '{"email":"admin@realmio.id","password":"Admin123!"}'
 ```
 
-### 3. Check Session
+### List Tenants
 ```bash
-curl https://0xauthx0.netlify.app/api/auth/get-session \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+curl -c admin-cookie.txt -b admin-cookie.txt \
+  http://localhost:4000/admin/api/tenants
 ```
 
----
-
-## 🚀 Integrasi ke Aplikasi
-
-### React (Vite) - 3 Langkah
-
-**Step 1:** Install axios
+### Buat Tenant Baru
 ```bash
-npm install axios
+curl -c admin-cookie.txt -b admin-cookie.txt \
+  -X POST http://localhost:4000/admin/api/tenants \
+  -H "Content-Type: application/json" \
+  -d '{"id":"my-app","name":"My Application","slug":"my-app"}'
 ```
 
-**Step 2:** Copy file example
+### Register User Tenant
 ```bash
-# Download dari repository
-curl -o src/auth.jsx https://raw.githubusercontent.com/your-repo/examples/react-example.jsx
+curl -X POST http://localhost:4000/api/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: my-app" \
+  -d '{"email":"user@example.com","password":"Passw0rd!","name":"User"}'
 ```
 
-**Step 3:** Wrap aplikasi dengan AuthProvider
-```jsx
-// main.jsx
-import { AuthProvider } from './auth';
-
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <AuthProvider>
-    <App />
-  </AuthProvider>
-);
-```
-
-**Step 4:** Gunakan di component
-```jsx
-import { useAuth } from './auth';
-
-function MyComponent() {
-  const { user, signIn, signOut } = useAuth();
-  
-  if (user) {
-    return <div>Welcome {user.name}! <button onClick={signOut}>Logout</button></div>;
-  }
-  
-  return <button onClick={() => signIn('email@example.com', 'password')}>Login</button>;
-}
-```
-
----
-
-### Node.js Backend - 2 Langkah
-
-**Step 1:** Install dependencies
+### Login User Tenant
 ```bash
-npm install axios cookie-parser
+curl -c tenant-cookie.txt -b tenant-cookie.txt \
+  -X POST http://localhost:4000/api/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: my-app" \
+  -d '{"email":"user@example.com","password":"Passw0rd!"}'
 ```
 
-**Step 2:** Add middleware
-```javascript
-const axios = require('axios');
-
-async function authMiddleware(req, res, next) {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  
-  try {
-    const response = await axios.get(
-      'https://0xauthx0.netlify.app/api/auth/get-session',
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    
-    req.user = response.data.user;
-    next();
-  } catch (error) {
-    res.status(401).json({ error: 'Unauthorized' });
-  }
-}
-
-// Gunakan di route
-app.get('/protected', authMiddleware, (req, res) => {
-  res.json({ user: req.user });
-});
+### Check Session
+```bash
+curl -c tenant-cookie.txt -b tenant-cookie.txt \
+  -H "X-Tenant-Id: my-app" \
+  http://localhost:4000/api/auth/get-session
 ```
 
----
-
-## 📱 Postman Testing
-
-**Import Postman Collection:**
-1. Download: `postman-collection.json` dari folder `examples/`
-2. Import ke Postman
-3. Set environment variable `baseUrl` = `https://0xauthx0.netlify.app/api/auth`
-4. Run collection!
+### Health Check
+```bash
+curl http://localhost:4000/healthz
+```
 
 ---
 
 ## 🔑 Authentication Methods
 
-| Method | Use Case | Example |
-|--------|----------|---------|
+| Method | Use Case | Cara Penggunaan |
+|--------|----------|-----------------|
 | **Cookie** | Web apps (same domain) | Browser auto-sends cookie |
 | **Bearer Token** | Mobile apps, SPAs | `Authorization: Bearer {token}` |
 | **API Key** | Backend services | `x-api-key: {key}` |
-| **JWT** | Microservices | Verify with JWKS |
+| **JWT** | Microservices | Verify dengan JWKS endpoint |
+
+---
+
+## 🚀 Integrasi ke Aplikasi
+
+### React / Next.js
+
+```jsx
+// Contoh login
+async function login(email, password) {
+  const res = await fetch('http://localhost:4000/api/auth/sign-in/email', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Tenant-Id': 'my-app'  // tenant ID Anda
+    },
+    credentials: 'include',  // untuk cookie
+    body: JSON.stringify({ email, password })
+  });
+  return res.json();
+}
+
+// Contoh check session
+async function getSession() {
+  const res = await fetch('http://localhost:4000/api/auth/get-session', {
+    headers: { 'X-Tenant-Id': 'my-app' },
+    credentials: 'include'
+  });
+  return res.json();
+}
+```
+
+### Node.js Backend
+
+```javascript
+// Middleware autentikasi
+async function authMiddleware(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  const tenantId = req.headers['x-tenant-id'];
+  
+  try {
+    const response = await fetch('http://localhost:4000/api/auth/get-session', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'X-Tenant-Id': tenantId
+      }
+    });
+    
+    if (!response.ok) throw new Error('Unauthorized');
+    
+    const { user } = await response.json();
+    req.user = user;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: 'Unauthorized' });
+  }
+}
+```
 
 ---
 
 ## 📚 Dokumentasi Lengkap
 
-- **Full Integration Guide:** `docs/INTEGRATION_GUIDE.md`
-- **React Example:** `examples/react-example.jsx`
-- **Node.js Example:** `examples/nodejs-middleware.js`
-- **Postman Collection:** `examples/postman-collection.json`
+- **Installation:** `docs/INSTALLATION.md`
+- **Configuration:** `docs/CONFIGURATION.md`
+- **Provisioning:** `docs/PROVISIONING.md`
+- **Testing:** `docs/TESTING.md`
+- **Integration Guide:** `docs/INTEGRATION_GUIDE.md`
+- **Features:** `docs/FEATURES.md`
 
 ---
 
 ## 🆘 Troubleshooting
 
 ### CORS Error
-**Problem:** Browser blocks request with CORS error  
-**Solution:** Pastikan domain Anda ada di `TRUSTED_ORIGINS`. Hubungi admin.
+**Problem:** Browser blocks request dengan CORS error  
+**Solusi:** Tambahkan domain Anda ke `TRUSTED_ORIGINS` di `.env`
 
 ### 401 Unauthorized
 **Problem:** Session token invalid atau expired  
-**Solution:** Login ulang untuk mendapatkan session baru
+**Solusi:** Login ulang untuk mendapatkan session baru
+
+### 403 Tenant Required
+**Problem:** Request tanpa `X-Tenant-Id` header  
+**Solusi:** Tambahkan header `X-Tenant-Id: {tenant-slug}` ke setiap request
 
 ### 500 Internal Server Error
 **Problem:** Server error  
-**Solution:** Check Netlify function logs atau hubungi support
-
----
-
-## 🎉 Next Steps
-
-1. ✅ Test dengan curl atau Postman
-2. ✅ Integrate ke aplikasi Anda
-3. ✅ Setup environment variables
-4. ✅ Deploy ke production
-5. ✅ Monitor dan scale!
-
-**Realmio URL:** https://0xauthx0.netlify.app
-
-**Status:** ✅ Production Ready | 🚀 High Performance | 🔒 Secure
+**Solusi:** Check log server: `tail -f /tmp/server.log`
