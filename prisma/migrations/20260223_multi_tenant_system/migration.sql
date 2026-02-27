@@ -61,117 +61,141 @@ CREATE INDEX IF NOT EXISTS idx_audit_created ON public.tenant_audit_log(created_
 
 -- ============================================
 -- 4. ADMIN SYSTEM SCHEMA
+-- NOTE: Column names use camelCase to match Prisma-generated schema
 -- ============================================
 
 CREATE SCHEMA IF NOT EXISTS authcore_system;
 
--- Admin users table
+-- Admin users table (matches Prisma User model with @@map("users"))
 CREATE TABLE IF NOT EXISTS authcore_system.users (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
-  email_verified BOOLEAN DEFAULT false,
+  "emailVerified" BOOLEAN NOT NULL DEFAULT false,
   name TEXT,
   image TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   role TEXT DEFAULT 'admin',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  banned BOOLEAN DEFAULT false,
+  "banReason" TEXT,
+  "banExpires" TIMESTAMP(3)
 );
 
--- Admin accounts table (for password auth)
+-- Admin accounts table (matches Prisma Account model with @@map("accounts"))
 CREATE TABLE IF NOT EXISTS authcore_system.accounts (
   id TEXT PRIMARY KEY,
-  account_id TEXT NOT NULL,
-  provider_id TEXT NOT NULL,
+  "accountId" TEXT NOT NULL,
+  "providerId" TEXT NOT NULL,
   user_id TEXT NOT NULL REFERENCES authcore_system.users(id) ON DELETE CASCADE,
-  access_token TEXT,
-  refresh_token TEXT,
-  id_token TEXT,
-  access_token_expires_at TIMESTAMPTZ,
-  refresh_token_expires_at TIMESTAMPTZ,
+  "accessToken" TEXT,
+  "refreshToken" TEXT,
+  "idToken" TEXT,
+  "accessTokenExpiresAt" TIMESTAMP(3),
+  "refreshTokenExpiresAt" TIMESTAMP(3),
   scope TEXT,
   password TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Admin sessions table
+-- Admin sessions table (matches Prisma Session model with @@map("sessions"))
 CREATE TABLE IF NOT EXISTS authcore_system.sessions (
   id TEXT PRIMARY KEY,
-  expires_at TIMESTAMPTZ NOT NULL,
+  "expiresAt" TIMESTAMP(3) NOT NULL,
   token TEXT UNIQUE NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  ip_address TEXT,
-  user_agent TEXT,
-  user_id TEXT NOT NULL REFERENCES authcore_system.users(id) ON DELETE CASCADE
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "ipAddress" TEXT,
+  "userAgent" TEXT,
+  user_id TEXT NOT NULL REFERENCES authcore_system.users(id) ON DELETE CASCADE,
+  "impersonatedBy" TEXT,
+  "activeOrganizationId" TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_token ON authcore_system.sessions(token);
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_user ON authcore_system.sessions(user_id);
 
--- Admin verification tokens
-CREATE TABLE IF NOT EXISTS authcore_system.verification_tokens (
+-- Admin verification table (matches Prisma Verification model with @@map("verification"))
+CREATE TABLE IF NOT EXISTS authcore_system.verification (
+  id TEXT PRIMARY KEY,
   identifier TEXT NOT NULL,
-  token TEXT UNIQUE NOT NULL,
-  expires TIMESTAMPTZ NOT NULL,
-  
-  UNIQUE(identifier, token)
+  value TEXT NOT NULL,
+  "expiresAt" TIMESTAMP(3) NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Admin organizations
+-- Admin organizations table (matches Prisma Organization model with @@map("organizations"))
 CREATE TABLE IF NOT EXISTS authcore_system.organizations (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   slug TEXT UNIQUE NOT NULL,
   description TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   logo TEXT,
-  metadata TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  metadata TEXT
 );
 
--- Admin organization members
-CREATE TABLE IF NOT EXISTS authcore_system.organization_members (
+-- Admin member table (matches Prisma Member model with @@map("member"))
+CREATE TABLE IF NOT EXISTS authcore_system.member (
   id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES authcore_system.users(id) ON DELETE CASCADE,
-  organization_id TEXT NOT NULL REFERENCES authcore_system.organizations(id) ON DELETE CASCADE,
-  role TEXT DEFAULT 'member',
-  invited_by TEXT,
-  joined_at TIMESTAMPTZ DEFAULT NOW(),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  UNIQUE(user_id, organization_id)
+  "organizationId" TEXT NOT NULL REFERENCES authcore_system.organizations(id) ON DELETE CASCADE,
+  "userId" TEXT NOT NULL REFERENCES authcore_system.users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Admin invitations
+-- Admin invitation table (matches Prisma Invitation model with @@map("invitation"))
 CREATE TABLE IF NOT EXISTS authcore_system.invitation (
   id TEXT PRIMARY KEY,
-  organization_id TEXT NOT NULL REFERENCES authcore_system.organizations(id) ON DELETE CASCADE,
+  "organizationId" TEXT NOT NULL REFERENCES authcore_system.organizations(id) ON DELETE CASCADE,
   email TEXT NOT NULL,
   role TEXT,
   status TEXT NOT NULL,
-  expires_at TIMESTAMPTZ NOT NULL,
-  inviter_id TEXT NOT NULL REFERENCES authcore_system.users(id) ON DELETE CASCADE
+  "expiresAt" TIMESTAMP(3) NOT NULL,
+  "inviterId" TEXT NOT NULL REFERENCES authcore_system.users(id) ON DELETE CASCADE
 );
 
--- Admin member (simplified)
-CREATE TABLE IF NOT EXISTS authcore_system.member (
+-- Admin API keys table (matches Prisma Apikey model with @@map("apikey"))
+CREATE TABLE IF NOT EXISTS authcore_system.apikey (
   id TEXT PRIMARY KEY,
-  organization_id TEXT NOT NULL REFERENCES authcore_system.organizations(id) ON DELETE CASCADE,
-  user_id TEXT NOT NULL REFERENCES authcore_system.users(id) ON DELETE CASCADE,
-  role TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  name TEXT,
+  start TEXT,
+  prefix TEXT,
+  key TEXT NOT NULL,
+  "userId" TEXT NOT NULL REFERENCES authcore_system.users(id) ON DELETE CASCADE,
+  "refillInterval" INTEGER,
+  "refillAmount" INTEGER,
+  "lastRefillAt" TIMESTAMP(3),
+  enabled BOOLEAN DEFAULT true,
+  "rateLimitEnabled" BOOLEAN DEFAULT true,
+  "rateLimitTimeWindow" INTEGER,
+  "rateLimitMax" INTEGER,
+  "requestCount" INTEGER,
+  remaining INTEGER,
+  "lastRequest" TIMESTAMP(3),
+  "expiresAt" TIMESTAMP(3),
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  permissions TEXT,
+  metadata TEXT
 );
 
--- Admin verification
-CREATE TABLE IF NOT EXISTS authcore_system.verification (
+-- Admin JWKS table (matches Prisma Jwks model with @@map("jwks"))
+CREATE TABLE IF NOT EXISTS authcore_system.jwks (
   id TEXT PRIMARY KEY,
-  identifier TEXT NOT NULL,
-  value TEXT NOT NULL,
-  expires_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  "publicKey" TEXT NOT NULL,
+  "privateKey" TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Admin two-factor table (matches Prisma TwoFactor model with @@map("two_factor"))
+CREATE TABLE IF NOT EXISTS authcore_system.two_factor (
+  id TEXT PRIMARY KEY,
+  secret TEXT NOT NULL,
+  "backupCodes" TEXT NOT NULL,
+  "userId" TEXT NOT NULL REFERENCES authcore_system.users(id) ON DELETE CASCADE
 );
 
 -- ============================================
@@ -243,12 +267,6 @@ CREATE TRIGGER update_tenants_updated_at
 DROP TRIGGER IF EXISTS update_applications_updated_at ON public.applications;
 CREATE TRIGGER update_applications_updated_at
   BEFORE UPDATE ON public.applications
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- Triggers for admin users
-DROP TRIGGER IF EXISTS update_admin_users_updated_at ON authcore_system.users;
-CREATE TRIGGER update_admin_users_updated_at
-  BEFORE UPDATE ON authcore_system.users
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================

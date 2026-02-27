@@ -1,104 +1,224 @@
 # Provisioning Guide
 
-This guide describes how to create and maintain the PostgreSQL assets that Realmio expects. The
-process is split into three layers:
+Panduan ini menjelaskan cara membuat dan memelihara aset PostgreSQL yang dibutuhkan Realmio. Proses dibagi menjadi tiga lapisan:
 
-1. **Core mode setup** – Creates tenant tables and schemas for your selected operating mode.
-2. **Admin system** – Provisions the `authcore_system` schema used by the dashboard.
-3. **Bootstrap data** – Seeds the root admin and optional sample tenants.
+1. **Database setup** – Membuat database dan menjalankan Prisma migrations.
+2. **Admin system** – Memastikan schema `authcore_system` sudah ada dan benar.
+3. **Bootstrap data** – Membuat admin user pertama.
 
-All scripts are idempotent; rerunning them is safe and keeps your database aligned with the latest
-SQL templates in the repository.
+Semua langkah bersifat idempotent; aman untuk dijalankan ulang.
 
-## 1. Mode Setup Scripts
+## 1. Setup Database
 
-Run exactly one of the following scripts after exporting `DATABASE_URL` in your shell. Each script
-creates the baseline tables for the chosen tenancy model.
+### 1.1 Buat Database dan Role
+
+```bash
+# Buat database
+createdb authdb
+
+# Buat role realmio (diperlukan oleh migration SQL)
+psql -d authdb -c "CREATE ROLE realmio WITH LOGIN PASSWORD 'realmio';"
+```
+
+### 1.2 Jalankan Prisma Migrations
+
+Cara yang direkomendasikan untuk setup database adalah menggunakan Prisma migrations:
+
+```bash
+# Generate Prisma client
+npx prisma generate
+
+# Jalankan semua migrations
+DATABASE_URL="postgresql://user:password@localhost:5432/authdb" npx prisma migrate deploy
+```
+
+Migrations akan membuat:
+
+**Schema `public`:**
+- `users` — Better Auth users
+- `accounts` — OAuth providers dan password auth
+- `sessions` — Active sessions
+- `verification` — Email verification tokens
+- `organizations`, `member`, `invitation` — Organization management
+- `apikey` — API keys
+- `jwks` — JWT key pairs
+- `two_factor` — 2FA secrets
+- `tenants` — Tenant registry
+- `applications` — Tenant applications
+- `tenant_audit_log` — Audit log
+- `application_sub_tenants` — Nested tenancy
+
+**Schema `authcore_system`:**
+- `users` — Admin users (terpisah dari tenant users)
+- `accounts` — Admin auth accounts
+- `sessions` — Admin sessions
+- `verification` — Admin verification tokens
+- `organizations`, `member`, `invitation` — Admin organizations
+- `apikey` — Admin API keys
+- `jwks` — Admin JWT key pairs
+- `two_factor` — Admin 2FA
+- `audit_actions` — Admin action audit log
+- `admin_settings` — System settings
+
+> **Catatan Penting:** Semua kolom di `authcore_system` menggunakan camelCase (seperti `emailVerified`, `createdAt`, `accountId`) agar kompatibel dengan Prisma client.
+
+### 1.3 Verifikasi Database
+
+```bash
+# Cek schema yang ada
+psql -d authdb -c "SELECT schema_name FROM information_schema.schemata ORDER BY schema_name;"
+
+# Cek tabel di authcore_system
+psql -d authdb -c "\dt authcore_system.*"
+
+# Cek tabel di public
+psql -d authdb -c "\dt public.*"
+```
+
+## 2. Setup Admin System
+
+### 2.1 Buat Admin User Pertama
+
+Setelah server berjalan, daftarkan admin user:
+
+```bash
+# Daftarkan admin user
+curl -X POST http://localhost:4000/admin/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@realmio.id","password":"Admin123!","name":"Admin"}'
+
+# Set role menjadi admin
+psql -d authdb -c "UPDATE authcore_system.users SET role = 'admin' WHERE email = 'admin@realmio.id';"
+```
+
+### 2.2 Verifikasi Admin User
+
+```bash
+# Cek admin user
+psql -d authdb -c "SELECT id, email, role FROM authcore_system.users;"
+
+# Test login
+curl -c admin-cookie.txt -b admin-cookie.txt \
+  -X POST http://localhost:4000/admin/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@realmio.id","password":"Admin123!"}'
+```
+
+## 3. Membuat Tenant
+
+### 3.1 Via Admin API
+
+Setelah login sebagai admin:
+
+```bash
+# Login admin
+curl -c admin-cookie.txt -b admin-cookie.txt \
+  -X POST http://localhost:4000/admin/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@realmio.id","password":"Admin123!"}'
+
+# Buat tenant baru
+curl -c admin-cookie.txt -b admin-cookie.txt \
+  -X POST http://localhost:4000/admin/api/tenants \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "my-app",
+    "name": "My Application",
+    "slug": "my-app"
+  }'
+```
+
+### 3.2 Via Admin Dashboard
+
+1. Buka `http://localhost:3001/login`
+2. Login dengan kredensial admin
+3. Navigasi ke menu **Tenants**
+4. Klik **Create Tenant**
+5. Isi form dan submit
+
+### 3.3 Verifikasi Tenant
+
+```bash
+# List semua tenant
+curl -c admin-cookie.txt -b admin-cookie.txt \
+  http://localhost:4000/admin/api/tenants
+
+# Cek di database
+psql -d authdb -c "SELECT id, slug, schema_name, status FROM public.tenants;"
+```
+
+## 4. Mode Operasi
 
 ### Single-Tenant (`AUTH_MODE=single`)
 
 ```bash
-export DATABASE_URL=postgresql://user:password@host:5432/authcore
-bash scripts/setup-single.sh
+# .env
+AUTH_MODE=single
+TENANT_ID=my-tenant
+TENANT_SCHEMA=public
 ```
 
-This script prepares a fixed tenant schema and ensures the `public.tenants` registry reflects the
-single tenant defined by `TENANT_ID` and `TENANT_SCHEMA`.
+Tidak perlu membuat tenant via API. Server langsung menggunakan schema yang ditentukan.
 
-### Multi-Tenant (`AUTH_MODE=multi`, `NESTED_TENANCY_ENABLED=false`)
+### Multi-Tenant (`AUTH_MODE=multi`)
 
 ```bash
-export DATABASE_URL=postgresql://user:password@host:5432/authcore
-bash scripts/setup-multi.sh
+# .env
+AUTH_MODE=multi
+NESTED_TENANCY_ENABLED=false
 ```
 
-The script provisions the public registry tables and a starter tenant schema for smoke testing. You
-can add more tenants later using the admin APIs or SQL templates in `src/multi-tenant`.
+Tenant dibuat via Admin API atau dashboard. Setiap tenant mendapat schema PostgreSQL tersendiri.
 
-### Hybrid (`AUTH_MODE=multi`, `NESTED_TENANCY_ENABLED=true`)
+### Hybrid/Nested (`AUTH_MODE=multi`, `NESTED_TENANCY_ENABLED=true`)
 
 ```bash
-export DATABASE_URL=postgresql://user:password@host:5432/authcore
-bash scripts/setup-nested.sh
+# .env
+AUTH_MODE=multi
+NESTED_TENANCY_ENABLED=true
 ```
 
-In addition to the multi-tenant baseline this script deploys nested-sub-tenant structures from
-`src/multi-tenant/nested-schema.sql`.
+Mendukung sub-tenant dalam tenant. Gunakan untuk struktur hierarki seperti perusahaan → departemen.
 
-## 2. Admin System
+## 5. Provisioning Tenant Schema
 
-After the core mode setup, create the admin schema:
+Ketika tenant dibuat via API, Realmio otomatis membuat schema PostgreSQL untuk tenant tersebut. Schema berisi tabel-tabel Better Auth yang terisolasi:
+
+- `user` — Tenant users
+- `session` — Tenant sessions
+- `account` — Tenant auth accounts
+- `verification` — Tenant verification tokens
+- `organization`, `member`, `invitation` — Tenant organizations
+- `apikey` — Tenant API keys
+- `jwks` — Tenant JWT key pairs
+- `two_factor` — Tenant 2FA
+
+Untuk melihat schema tenant:
 
 ```bash
-export DATABASE_URL=postgresql://user:password@host:5432/authcore
-bash scripts/setup-admin.sh
+# Ganti 'tenant_my-app' dengan nama schema tenant Anda
+psql -d authdb -c "\dt tenant_my-app.*"
 ```
 
-The script runs `scripts/setup-admin-schema.sql`, which contains the Better Auth admin tables
-(`users`, `accounts`, `sessions`, etc.) under the `authcore_system` schema.
-
-## 3. Seed Root Administrator
-
-Realmio ships with a TypeScript seeder that creates or repairs the root admin credentials. Execute
-it anytime you need to guarantee access for the dashboard team.
+## 6. Backup & Restore
 
 ```bash
-export DATABASE_URL=postgresql://user:password@host:5432/authcore
-npx tsx scripts/seed-admin.ts
+# Backup seluruh database
+pg_dump authdb > authdb_backup.sql
+
+# Backup hanya authcore_system
+pg_dump -n authcore_system authdb > authcore_system_backup.sql
+
+# Restore
+psql authdb < authdb_backup.sql
 ```
 
-The script outputs the credentials (`root@realmio.local` / `Realmio123!`) and upgrades existing
-bcrypt hashes to Better Auth's scrypt format when required. Change the password immediately after the
-first login.
-
-## 4. Creating Tenants
-
-There are two common approaches for provisioning tenants after the baseline scripts run:
-
-1. **Admin Dashboard / API** – Authenticate as the root admin and call the `/admin/api/*` routes to
-   create tenants, applications, and audit log entries. These APIs persist data into `public.tenants`
-   and trigger schema provisioning through `tenantManager`.
-2. **Manual SQL** – Use the helper statements in `src/multi-tenant/provision-schemas.ts` to create a
-   schema and insert metadata. This is useful for offline migrations or bulk imports.
-
-Regardless of the approach, the connection manager automatically builds Prisma connection strings for
-new tenants on the next request.
-
-## 5. Verifying the Database
-
-Use the following commands to confirm the setup:
+## 7. Reset Database (Development)
 
 ```bash
-# List schemas (should include authcore_system and tenant_*)
-psql $DATABASE_URL -c "SELECT schema_name FROM information_schema.schemata ORDER BY schema_name;"
-
-# Check admin tables exist
-psql $DATABASE_URL -c "\dt authcore_system.*"
-
-# Confirm tenant registry entries
-psql $DATABASE_URL -c "SELECT id, slug, schema_name FROM public.tenants ORDER BY created_at DESC;"
+# Hapus dan buat ulang database
+dropdb authdb
+createdb authdb
+psql -d authdb -c "CREATE ROLE realmio WITH LOGIN PASSWORD 'realmio';"
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/authdb" npx prisma migrate deploy
 ```
-
-If any of the checks fail, rerun the corresponding setup script or review the SQL templates referenced
-in the error message. Once all checks pass you can proceed to the login tests in
-[TESTING.md](./TESTING.md).

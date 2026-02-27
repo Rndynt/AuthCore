@@ -1,6 +1,6 @@
 /**
  * Validation Schemas for Admin API
- * 
+ *
  * IMPROVEMENTS (Poin 9):
  * - Zod validation for all admin API inputs
  * - Type-safe request validation
@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import { ValidationError } from './errors.js';
 
 /**
  * Tenant validation schemas
@@ -165,6 +166,7 @@ export const paginationSchema = z.object({
 
 /**
  * Helper function to validate input
+ * Throws ValidationError (AppError subclass) for proper error handling
  */
 export function validateInput<T>(
   schema: z.ZodSchema<T>,
@@ -174,14 +176,42 @@ export function validateInput<T>(
   const result = schema.safeParse(data);
   
   if (!result.success) {
-    const errors = result.error.errors.map(e => 
-      `${e.path.join('.')}: ${e.message}`
-    ).join(', ');
+    const fieldErrors = result.error.errors.reduce((acc, e) => {
+      const path = e.path.join('.') || 'root';
+      acc[path] = e.message;
+      return acc;
+    }, {} as Record<string, string>);
     
-    throw new Error(`${errorMessage}: ${errors}`);
+    const errorSummary = Object.entries(fieldErrors)
+      .map(([field, msg]) => `${field}: ${msg}`)
+      .join(', ');
+    
+    throw new ValidationError(`${errorMessage}: ${errorSummary}`, { fields: fieldErrors });
   }
   
   return result.data;
+}
+
+/**
+ * Safe parse that returns null instead of throwing
+ */
+export function safeParseInput<T>(
+  schema: z.ZodSchema<T>,
+  data: unknown
+): { success: true; data: T } | { success: false; errors: Record<string, string> } {
+  const result = schema.safeParse(data);
+  
+  if (!result.success) {
+    const errors = result.error.errors.reduce((acc, e) => {
+      const path = e.path.join('.') || 'root';
+      acc[path] = e.message;
+      return acc;
+    }, {} as Record<string, string>);
+    
+    return { success: false, errors };
+  }
+  
+  return { success: true, data: result.data };
 }
 
 /**

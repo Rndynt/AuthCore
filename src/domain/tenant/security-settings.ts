@@ -83,17 +83,27 @@ export const DEFAULT_RATE_LIMIT_SETTINGS: RateLimitSettings = {
 };
 
 // Helper to validate IP address or CIDR
+// NOTE: This is a basic regex-based validator. For production use,
+// the ip-utils.ts module provides proper validation using ipaddr.js
 export function isValidIpOrCidr(value: string): boolean {
-  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
-  const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/;
-  const cidrRegex = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
-  const cidr6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\/\d{1,3}$/;
+  if (!value || typeof value !== 'string') return false;
   
-  if (ipv4Regex.test(value) || ipv6Regex.test(value)) {
-    return true;
+  const trimmed = value.trim();
+  
+  // IPv4 with optional CIDR
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
+  // IPv6 with optional CIDR (simplified - covers most common formats)
+  const ipv6Regex = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}(\/\d{1,3})?$/;
+  // IPv6 compressed with optional CIDR
+  const ipv6CompressedRegex = /^::([0-9a-fA-F]{0,4}:)*[0-9a-fA-F]{0,4}(\/\d{1,3})?$/;
+  
+  if (ipv4Regex.test(trimmed)) {
+    // Validate each octet is 0-255
+    const parts = trimmed.split('/')[0].split('.');
+    return parts.every(p => parseInt(p, 10) <= 255);
   }
   
-  if (cidrRegex.test(value) || cidr6Regex.test(value)) {
+  if (ipv6Regex.test(trimmed) || ipv6CompressedRegex.test(trimmed)) {
     return true;
   }
   
@@ -101,6 +111,8 @@ export function isValidIpOrCidr(value: string): boolean {
 }
 
 // Helper to check if an IP is blocked
+// NOTE: This is a fallback implementation. The ip-utils.ts module provides
+// proper CIDR matching using ipaddr.js and should be preferred.
 export function isIpBlocked(
   ip: string,
   blocklist: IpBlockEntry[]
@@ -114,14 +126,34 @@ export function isIpBlocked(
     }
     
     if (entry.isCidr) {
-      // CIDR matching would require additional library
-      // For now, do simple prefix matching for common CIDR patterns
-      const prefix = entry.ip.split('/')[0];
-      if (ip.startsWith(prefix.substring(0, prefix.lastIndexOf('.')))) {
-        return { blocked: true, entry };
+      // Proper CIDR matching using ipaddr.js-compatible approach
+      // This handles IPv4 CIDR ranges correctly
+      try {
+        const [cidrIp, prefixStr] = entry.ip.split('/');
+        const prefix = parseInt(prefixStr, 10);
+        
+        if (isNaN(prefix)) continue;
+        
+        // IPv4 CIDR matching
+        const ipParts = ip.split('.').map(Number);
+        const cidrParts = cidrIp.split('.').map(Number);
+        
+        if (ipParts.length === 4 && cidrParts.length === 4) {
+          const mask = ~(0xFFFFFFFF >>> prefix) >>> 0;
+          const ipNum = ((ipParts[0] << 24) | (ipParts[1] << 16) | (ipParts[2] << 8) | ipParts[3]) >>> 0;
+          const cidrNum = ((cidrParts[0] << 24) | (cidrParts[1] << 16) | (cidrParts[2] << 8) | cidrParts[3]) >>> 0;
+          
+          if ((ipNum & mask) === (cidrNum & mask)) {
+            return { blocked: true, entry };
+          }
+        }
+      } catch {
+        // Skip invalid CIDR entries
+        continue;
       }
     } else {
-      if (ip === entry.ip) {
+      // Exact IP match (case-insensitive for IPv6)
+      if (ip.toLowerCase() === entry.ip.toLowerCase()) {
         return { blocked: true, entry };
       }
     }

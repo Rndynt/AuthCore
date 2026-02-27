@@ -352,10 +352,10 @@ const baseHandler: StreamingHandler = async (event: HandlerEvent) => {
 
   console.log(`[Tenant Auth] Processing request for tenant: ${tenantId} (${tenant.name})`);
 
-  // Get tenant-specific auth instance
+  // Get tenant-specific auth instance (async)
   let tenantAuth;
   try {
-    tenantAuth = getTenantAuth(tenantId);
+    tenantAuth = await getTenantAuth(tenantId);
   } catch (error) {
     console.error(`[Tenant Auth] Failed to get auth instance for tenant ${tenantId}:`, error);
     return {
