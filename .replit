@@ -48,3 +48,11 @@ waitForPort = 5000
 [agent]
 integrations = ["javascript_database:1.0.0"]
 expertMode = true
+
+[userenv]
+
+[userenv.shared]
+NODE_ENV = "development"
+AUTH_MODE = "multi"
+ENABLE_DEV_ENDPOINTS = "true"
+NESTED_TENANCY_ENABLED = "false"

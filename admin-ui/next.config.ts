@@ -4,6 +4,7 @@ import path from 'path';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   trailingSlash: true,
+  output: 'export',
   // Fix workspace root detection warning in monorepo setup
   outputFileTracingRoot: path.join(__dirname, '../'),
   webpack: (config) => {
