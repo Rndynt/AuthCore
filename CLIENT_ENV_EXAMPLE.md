@@ -1,13 +1,13 @@
 # Client Application Environment Variables
 
-Panduan environment variables untuk aplikasi yang mengkonsumsi Auth Service.
+Panduan environment variables untuk aplikasi yang mengkonsumsi Realmio.
 
 ## 🔧 Environment Variables
 
 ### Untuk Frontend (React, Vue, Next.js, etc)
 
 ```env
-# Auth Service URL
+# Realmio URL
 VITE_AUTH_SERVICE_URL=https://0xauthx0.netlify.app
 # atau untuk Next.js / Create React App:
 NEXT_PUBLIC_AUTH_SERVICE_URL=https://0xauthx0.netlify.app
@@ -20,7 +20,7 @@ VITE_APP_URL=https://your-app.com
 ### Untuk Backend (Node.js, Python, Go, etc)
 
 ```env
-# Auth Service URL
+# Realmio URL
 AUTH_SERVICE_URL=https://0xauthx0.netlify.app
 
 # API Key (jika menggunakan service-to-service auth)
@@ -61,6 +61,6 @@ curl -X POST https://0xauthx0.netlify.app/api/auth/api-key/create \
 
 ## 🌐 CORS Configuration
 
-Jika aplikasi Anda di domain berbeda, pastikan domain Anda sudah ditambahkan ke `TRUSTED_ORIGINS` di Auth Service.
+Jika aplikasi Anda di domain berbeda, pastikan domain Anda sudah ditambahkan ke `TRUSTED_ORIGINS` di Realmio.
 
 Hubungi administrator untuk menambahkan domain Anda ke whitelist.

@@ -1,4 +1,4 @@
-# Design Guidelines for Auth Service Dashboard
+# Design Guidelines for Realmio Dashboard
 
 ## Design Approach
 **System-Based Approach (Design System)**: This is a utility-focused authentication service requiring high efficiency, security clarity, and professional reliability. Using **Material Design 3** principles for clean, functional interface with strong visual feedback for auth states.

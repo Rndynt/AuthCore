@@ -1,10 +1,10 @@
 # 🎯 Multi-Tenancy - Quick Summary
 
 ## ❓ Pertanyaan Anda
-> Apakah Auth Service ini support multi-tenant untuk multiple apps (POS, Ticketing, Exchange) dengan database/schema isolation?
+> Apakah Realmio ini support multi-tenant untuk multiple apps (POS, Ticketing, Exchange) dengan database/schema isolation?
 
 ## ✅ Jawaban Singkat
-**YA, SUPPORT** - tapi perlu implementasi tambahan. Auth Service sudah punya **Organization Plugin** aktif, namun hanya **logical separation**. Untuk **TRUE DATABASE ISOLATION** seperti yang Anda butuhkan, perlu implement **Separate Schema Pattern**.
+**YA, SUPPORT** - tapi perlu implementasi tambahan. Realmio sudah punya **Organization Plugin** aktif, namun hanya **logical separation**. Untuk **TRUE DATABASE ISOLATION** seperti yang Anda butuhkan, perlu implement **Separate Schema Pattern**.
 
 ---
 
@@ -278,9 +278,9 @@ if (crossTenantAttempts > 0) {
 | File | Purpose |
 |------|---------|
 | **MULTI_TENANT_IMPLEMENTATION.md** | Complete implementation guide |
-| **MULTI_TENANT_SUMMARY.md** | This summary (quick reference) |
+| **docs/MULTI_TENANT_SUMMARY.md** | This summary (quick reference) |
 | **docs/organizations.md** | Organization concepts |
-| **INTEGRATION_GUIDE.md** | How to integrate apps |
+| **docs/INTEGRATION_GUIDE.md** | How to integrate apps |
 
 ---
 

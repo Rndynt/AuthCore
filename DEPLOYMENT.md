@@ -1,4 +1,4 @@
-# Auth Service Deployment Guide
+# Realmio Deployment Guide
 
 ## Production Deployment on Netlify
 
@@ -20,6 +20,12 @@ DATABASE_URL=
 - **Build command**: `npm run build && npx prisma generate`
 - **Publish directory**: `dist` 
 - **Functions directory**: `netlify/functions`
+
+#### Active Netlify Functions
+- **Admin dashboard auth**: `netlify/functions/admin-auth.ts`
+- **Tenant auth**: `netlify/functions/tenant-auth.ts`
+
+Deprecated/removed files (do not use): `netlify/functions/auth.ts.backup` and `admin-auth-middleware.ts` (no longer present in the repo).
 
 ### 4. Database Migration
 Add to package.json for production deployment:

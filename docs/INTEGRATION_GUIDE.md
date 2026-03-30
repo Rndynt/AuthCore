@@ -1,6 +1,6 @@
-# 🔐 Auth Service Integration Guide
+# 🔐 Realmio Integration Guide
 
-Panduan lengkap untuk mengintegrasikan aplikasi Anda dengan Auth Service di **https://0xauthx0.netlify.app**
+Panduan lengkap untuk mengintegrasikan aplikasi Anda dengan Realmio di **https://0xauthx0.netlify.app**
 
 ---
 
@@ -40,7 +40,7 @@ Metode ini menggunakan HTTP-only cookies untuk menyimpan session secara aman.
 
 #### Sign Up
 ```bash
-curl -X POST https://0xauthx0.netlify.app/api/auth/sign-up/email \
+curl -X POST https://0xauthx0.netlify.app/.netlify/functions/tenant-auth/sign-up/email \
   -H "Content-Type: application/json" \
   -d '{
     "email": "user@example.com",
@@ -65,7 +65,7 @@ curl -X POST https://0xauthx0.netlify.app/api/auth/sign-up/email \
 
 #### Sign In
 ```bash
-curl -X POST https://0xauthx0.netlify.app/api/auth/sign-in/email \
+curl -X POST https://0xauthx0.netlify.app/.netlify/functions/tenant-auth/sign-in/email \
   -H "Content-Type: application/json" \
   -d '{
     "email": "user@example.com",
@@ -75,13 +75,13 @@ curl -X POST https://0xauthx0.netlify.app/api/auth/sign-in/email \
 
 #### Get Current Session
 ```bash
-curl https://0xauthx0.netlify.app/api/auth/get-session \
+curl https://0xauthx0.netlify.app/.netlify/functions/tenant-auth/get-session \
   -H "Cookie: __Secure-better-auth.session_token=YOUR_SESSION_TOKEN"
 ```
 
 #### Sign Out
 ```bash
-curl -X POST https://0xauthx0.netlify.app/api/auth/sign-out \
+curl -X POST https://0xauthx0.netlify.app/.netlify/functions/tenant-auth/sign-out \
   -H "Cookie: __Secure-better-auth.session_token=YOUR_SESSION_TOKEN"
 ```
 
@@ -93,7 +93,7 @@ JWT tokens berguna untuk stateless authentication atau microservices.
 
 #### Get JWT Token (setelah login)
 ```bash
-curl https://0xauthx0.netlify.app/api/auth/get-session \
+curl https://0xauthx0.netlify.app/.netlify/functions/tenant-auth/get-session \
   -H "Cookie: __Secure-better-auth.session_token=YOUR_SESSION_TOKEN"
 ```
 
@@ -105,7 +105,7 @@ set-auth-jwt: eyJhbGciOiJFZERTQSIsImtpZCI6IjlBV2o5ajQzM25MenZmOThmMjg3dE9GNjh4a2
 #### Verify JWT Token
 Endpoint untuk mendapatkan JWKS (JSON Web Key Set) untuk memverifikasi JWT:
 ```bash
-curl https://0xauthx0.netlify.app/api/auth/.well-known/jwks.json
+curl https://0xauthx0.netlify.app/.netlify/functions/tenant-auth/.well-known/jwks.json
 ```
 
 ---
@@ -116,7 +116,7 @@ Bearer tokens dapat digunakan untuk API calls dari aplikasi mobile atau SPA.
 
 #### Menggunakan Bearer Token
 ```bash
-curl https://0xauthx0.netlify.app/api/auth/list-sessions \
+curl https://0xauthx0.netlify.app/.netlify/functions/tenant-auth/list-sessions \
   -H "Authorization: Bearer YOUR_SESSION_TOKEN"
 ```
 
@@ -128,7 +128,7 @@ API Keys cocok untuk komunikasi antar backend services.
 
 #### Create API Key (harus authenticated)
 ```bash
-curl -X POST https://0xauthx0.netlify.app/api/auth/api-key/create \
+curl -X POST https://0xauthx0.netlify.app/.netlify/functions/tenant-auth/api-key/create \
   -H "Cookie: __Secure-better-auth.session_token=YOUR_SESSION_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -139,13 +139,13 @@ curl -X POST https://0xauthx0.netlify.app/api/auth/api-key/create \
 
 #### List API Keys
 ```bash
-curl https://0xauthx0.netlify.app/api/auth/api-key/list \
+curl https://0xauthx0.netlify.app/.netlify/functions/tenant-auth/api-key/list \
   -H "Cookie: __Secure-better-auth.session_token=YOUR_SESSION_TOKEN"
 ```
 
 #### Delete API Key
 ```bash
-curl -X POST https://0xauthx0.netlify.app/api/auth/api-key/revoke \
+curl -X POST https://0xauthx0.netlify.app/.netlify/functions/tenant-auth/api-key/revoke \
   -H "Cookie: __Secure-better-auth.session_token=YOUR_SESSION_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -155,7 +155,7 @@ curl -X POST https://0xauthx0.netlify.app/api/auth/api-key/revoke \
 
 #### Menggunakan API Key
 ```bash
-curl https://0xauthx0.netlify.app/api/auth/get-session \
+curl https://0xauthx0.netlify.app/.netlify/functions/tenant-auth/get-session \
   -H "x-api-key: YOUR_API_KEY"
 ```
 
@@ -170,11 +170,11 @@ curl https://0xauthx0.netlify.app/api/auth/get-session \
 npm install axios
 ```
 
-#### 2. Create Auth Service (utils/authService.js)
+#### 2. Create Realmio (utils/authService.js)
 ```javascript
 import axios from 'axios';
 
-const AUTH_BASE_URL = 'https://0xauthx0.netlify.app/api/auth';
+const AUTH_BASE_URL = 'https://0xauthx0.netlify.app/.netlify/functions/tenant-auth';
 
 const authAPI = axios.create({
   baseURL: AUTH_BASE_URL,
@@ -358,11 +358,11 @@ export default function ProtectedRoute({ children }) {
 
 ### Vue.js
 
-#### 1. Create Auth Service (services/authService.js)
+#### 1. Create Realmio (services/authService.js)
 ```javascript
 import axios from 'axios';
 
-const AUTH_BASE_URL = 'https://0xauthx0.netlify.app/api/auth';
+const AUTH_BASE_URL = 'https://0xauthx0.netlify.app/.netlify/functions/tenant-auth';
 
 const authAPI = axios.create({
   baseURL: AUTH_BASE_URL,
@@ -454,7 +454,7 @@ export const useAuthStore = defineStore('auth', {
 ```javascript
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const AUTH_BASE_URL = 'https://0xauthx0.netlify.app/api/auth';
+const AUTH_BASE_URL = 'https://0xauthx0.netlify.app/.netlify/functions/tenant-auth';
 
 class AuthService {
   async signUp(email, password, name) {
@@ -530,7 +530,7 @@ export default new AuthService();
 ```javascript
 const axios = require('axios');
 
-const AUTH_BASE_URL = 'https://0xauthx0.netlify.app/api/auth';
+const AUTH_BASE_URL = 'https://0xauthx0.netlify.app/.netlify/functions/tenant-auth';
 
 async function authMiddleware(req, res, next) {
   try {
@@ -591,7 +591,7 @@ app.get('/api/protected', authMiddleware, (req, res) => {
 from fastapi import FastAPI, Depends, HTTPException, Header
 import httpx
 
-AUTH_BASE_URL = "https://0xauthx0.netlify.app/api/auth"
+AUTH_BASE_URL = "https://0xauthx0.netlify.app/.netlify/functions/tenant-auth"
 
 async def get_current_user(
     authorization: str = Header(None),
@@ -641,7 +641,7 @@ import (
     "net/http"
 )
 
-const AuthBaseURL = "https://0xauthx0.netlify.app/api/auth"
+const AuthBaseURL = "https://0xauthx0.netlify.app/.netlify/functions/tenant-auth"
 
 type User struct {
     ID    string `json:"id"`
@@ -840,6 +840,6 @@ Jika ada pertanyaan atau issue:
 
 ---
 
-**Auth Service URL:** https://0xauthx0.netlify.app
+**Realmio URL:** https://0xauthx0.netlify.app
 
 **Status:** ✅ Production Ready

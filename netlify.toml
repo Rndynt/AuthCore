@@ -1,17 +1,53 @@
 [build]
+  # Build admin UI (Next.js SSR via @netlify/plugin-nextjs), then backend
+  # @netlify/plugin-nextjs v5 (OpenNext) manages the Next.js build output
+  command = "cd admin-ui && npm install && npm run build && cd .. && npm run build && npx prisma generate"
+  # publish must point to the Next.js .next directory for the plugin to work
+  publish = "admin-ui/.next"
   functions = "netlify/functions"
-  command = "npm run build && npx prisma generate && npx prisma migrate deploy"
 
 # Configure secrets scanning to omit legitimate environment variable names
 [build.environment]
+  NODE_VERSION = "20"
   SECRETS_SCAN_OMIT_KEYS = "BETTER_AUTH_SECRET,BETTER_AUTH_URL,DATABASE_URL,TRUSTED_ORIGINS,ENABLE_DEV_ENDPOINTS"
+  NEXT_PUBLIC_API_URL = "/.netlify/functions/admin-auth"
 
 # Netlify Functions configuration for Prisma
 [functions]
   node_bundler = "esbuild"
   included_files = ["node_modules/.prisma/**", "node_modules/@prisma/client/**"]
 
+# Next.js plugin - handles SSR/ISR for admin-ui
+# Plugin v5 (OpenNext-based) - manages routing and serverless functions automatically
+# Note: @netlify/plugin-nextjs v5 does NOT accept any inputs
+# The plugin uses publish = "admin-ui/.next" to locate the Next.js build output
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Admin routes → admin-auth function
+[[redirects]]
+  from = "/admin/log-stream"
+  to = "/.netlify/functions/admin-auth"
+  status = 200
+
+[[redirects]]
+  from = "/admin/api/*"
+  to = "/.netlify/functions/admin-auth"
+  status = 200
+
+[[redirects]]
+  from = "/admin/auth/*"
+  to = "/.netlify/functions/admin-auth"
+  status = 200
+
+# Tenant authentication routes → tenant-auth function
 [[redirects]]
   from = "/api/auth/*"
-  to = "/.netlify/functions/auth"
+  to = "/.netlify/functions/tenant-auth"
+  status = 200
+
+# Legacy API routes → tenant-auth function
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/tenant-auth"
   status = 200
