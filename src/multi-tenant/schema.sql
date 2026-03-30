@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS authcore_system.users (
   name TEXT,
   image TEXT,
   role TEXT DEFAULT 'admin',
+  "twoFactorEnabled" BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
