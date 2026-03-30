@@ -21,14 +21,15 @@ model User {
   // Relations
   accounts      Account[]
   sessions      Session[]
-  role          String?
-  banned        Boolean?     @default(false)
-  banReason     String?
-  banExpires    DateTime?
-  members       Member[]
-  invitations   Invitation[]
-  apikeys       Apikey[]
-  twoFactors    TwoFactor[]
+  role                String?
+  banned              Boolean?     @default(false)
+  banReason           String?
+  banExpires          DateTime?
+  twoFactorEnabled    Boolean      @default(false)
+  members             Member[]
+  invitations         Invitation[]
+  apikeys             Apikey[]
+  twoFactors          TwoFactor[]
 
   @@map("users")
 }
