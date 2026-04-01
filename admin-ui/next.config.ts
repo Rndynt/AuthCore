@@ -1,38 +1,19 @@
 import type { NextConfig } from 'next';
 
+const apiUrl = process.env.NEXT_INTERNAL_API_URL || 'http://localhost:5001';
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  trailingSlash: true,
+  output: 'standalone',
   async rewrites() {
     return [
-      {
-        source: '/api/:path*',
-        destination: 'http://localhost:5001/api/:path*',
-      },
-      {
-        source: '/admin/:path*',
-        destination: 'http://localhost:5001/admin/:path*',
-      },
-      {
-        source: '/healthz',
-        destination: 'http://localhost:5001/healthz',
-      },
-      {
-        source: '/tenant/:path*',
-        destination: 'http://localhost:5001/tenant/:path*',
-      },
-      {
-        source: '/dev/:path*',
-        destination: 'http://localhost:5001/dev/:path*',
-      },
-      {
-        source: '/me',
-        destination: 'http://localhost:5001/me',
-      },
-      {
-        source: '/legacy/:path*',
-        destination: 'http://localhost:5001/legacy/:path*',
-      },
+      { source: '/api/:path*', destination: `${apiUrl}/api/:path*` },
+      { source: '/admin/:path*', destination: `${apiUrl}/admin/:path*` },
+      { source: '/healthz', destination: `${apiUrl}/healthz` },
+      { source: '/tenant/:path*', destination: `${apiUrl}/tenant/:path*` },
+      { source: '/dev/:path*', destination: `${apiUrl}/dev/:path*` },
+      { source: '/me', destination: `${apiUrl}/me` },
+      { source: '/legacy/:path*', destination: `${apiUrl}/legacy/:path*` },
     ];
   },
 };

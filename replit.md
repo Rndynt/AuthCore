@@ -33,10 +33,17 @@ Realmio is a headless, multi-tenant authentication service built on **Fastify** 
 - **Startup script**: `bash start.sh` (starts both backend and admin UI)
 - **Backend**: `npm run dev` (runs `tsx src/server.ts`, port 5001)
 - **Admin UI**: `cd admin-ui && npm run dev -- -p 5000` (port 5000 webview)
-- **Build backend**: `npm run build`
+- **Build backend**: `npm run build` (note: tsconfig has `noEmit: true`, use `tsx` for runtime)
 - **Prisma generate**: `npm run prisma:gen`
 - **Prisma migrate**: `npm run prisma:deploy`
 - **Health check**: `GET /healthz` on port 5001
+
+## Docker / Production
+- **Dockerfile** (root): Backend API, runs via `tsx src/server.ts` on port 4000
+- **admin-ui/Dockerfile**: Next.js standalone build, runs on port 3000
+- **docker-compose.yml**: Orchestrates both services, internal network `realmio_net`
+- **Admin UI env var**: `NEXT_INTERNAL_API_URL=http://api:4000` (Docker internal network)
+- See `docs/DEPLOY_VPS_DOCKER.md` for full VPS deployment guide with Nginx
 
 ## Architecture on Replit
 - **Port 5000**: Admin UI (Next.js dev server) — shown as main webview

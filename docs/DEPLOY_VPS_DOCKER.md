@@ -98,18 +98,25 @@ systemctl start nginx
 
 ## 4. Struktur File
 
-Struktur direktori yang direkomendasikan di VPS:
+Semua file Docker sudah tersedia di dalam repository:
 
 ```
-/root/.openclaw/workspace/realmio-transity/
-├── Dockerfile                  # Backend API
+realmio-transity/
+├── Dockerfile                  # ✅ Backend API (sudah ada di repo)
+├── .dockerignore               # ✅ Sudah ada di repo
+├── docker-compose.yml          # ✅ Sudah ada di repo
+├── .env                        # ⚠️  Buat dari .env.example (tidak di-commit)
 ├── admin-ui/
-│   ├── Dockerfile              # Admin UI
+│   ├── Dockerfile              # ✅ Sudah ada di repo
+│   ├── .dockerignore           # ✅ Sudah ada di repo
+│   ├── next.config.ts          # ✅ Sudah dikonfigurasi (output: standalone)
+│   ├── .env.production         # ⚠️  Buat dari .env.example (tidak di-commit)
 │   └── ...
-├── docker-compose.yml          # Orchestration
-├── .env                        # Backend env vars
-└── admin-ui/.env.production    # Frontend env vars
+└── docs/
+    └── DEPLOY_VPS_DOCKER.md    # 📖 Tutorial ini
 ```
+
+Cukup clone repo dan buat file `.env`, tidak perlu buat Dockerfile manual.
 
 ---
 
@@ -458,43 +465,7 @@ nano .env
 nano admin-ui/.env.production
 ```
 
-### Langkah 3: Update konfigurasi Next.js (PENTING)
-
-```bash
-cat > admin-ui/next.config.ts << 'EOF'
-import type { NextConfig } from 'next';
-
-const nextConfig: NextConfig = {
-  reactStrictMode: true,
-  output: 'standalone',
-};
-
-export default nextConfig;
-EOF
-```
-
-### Langkah 4: Update Dockerfile admin-ui
-
-```bash
-cat > admin-ui/Dockerfile << 'EOF'
-FROM node:20-alpine
-
-WORKDIR /app
-
-COPY package.json package-lock.json ./
-RUN npm install
-
-COPY . .
-
-RUN npm run build
-
-EXPOSE 3000
-
-CMD ["npm", "start"]
-EOF
-```
-
-### Langkah 5: Build ulang semua container
+### Langkah 3: Build semua container
 
 ```bash
 # Stop container yang berjalan
