@@ -1,19 +1,39 @@
 import type { NextConfig } from 'next';
-import path from 'path';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   trailingSlash: true,
-  output: 'export',
-  // Fix workspace root detection warning in monorepo setup
-  outputFileTracingRoot: path.join(__dirname, '../'),
-  webpack: (config) => {
-    config.watchOptions = {
-      ...config.watchOptions,
-      poll: 1000,
-      aggregateTimeout: 300,
-    };
-    return config;
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: 'http://localhost:5001/api/:path*',
+      },
+      {
+        source: '/admin/:path*',
+        destination: 'http://localhost:5001/admin/:path*',
+      },
+      {
+        source: '/healthz',
+        destination: 'http://localhost:5001/healthz',
+      },
+      {
+        source: '/tenant/:path*',
+        destination: 'http://localhost:5001/tenant/:path*',
+      },
+      {
+        source: '/dev/:path*',
+        destination: 'http://localhost:5001/dev/:path*',
+      },
+      {
+        source: '/me',
+        destination: 'http://localhost:5001/me',
+      },
+      {
+        source: '/legacy/:path*',
+        destination: 'http://localhost:5001/legacy/:path*',
+      },
+    ];
   },
 };
 

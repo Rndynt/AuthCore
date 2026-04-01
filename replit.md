@@ -13,7 +13,7 @@ Realmio is a headless, multi-tenant authentication service built on **Fastify** 
 
 ## Project Structure
 ```
-├── admin-ui/           # Next.js 15 Admin Dashboard (static export → admin-ui/out/)
+├── admin-ui/           # Next.js 15 Admin Dashboard (dev server on port 5000)
 ├── docs/               # Documentation
 ├── prisma/             # Prisma schema + migrations
 ├── scripts/            # Setup and seeding scripts
@@ -30,35 +30,42 @@ Realmio is a headless, multi-tenant authentication service built on **Fastify** 
 ```
 
 ## Running the Project
-- **Dev server**: `npm run dev` (runs `tsx src/server.ts`, port 5000)
+- **Startup script**: `bash start.sh` (starts both backend and admin UI)
+- **Backend**: `npm run dev` (runs `tsx src/server.ts`, port 5001)
+- **Admin UI**: `cd admin-ui && npm run dev -- -p 5000` (port 5000 webview)
 - **Build backend**: `npm run build`
-- **Build admin UI**: `cd admin-ui && NODE_ENV=production npm run build` (outputs to `admin-ui/out/`)
-- **Health check**: `GET /healthz`
+- **Prisma generate**: `npm run prisma:gen`
+- **Prisma migrate**: `npm run prisma:deploy`
+- **Health check**: `GET /healthz` on port 5001
+
+## Architecture on Replit
+- **Port 5000**: Admin UI (Next.js dev server) — shown as main webview
+- **Port 5001**: Backend API (Fastify server) — proxied via Next.js rewrites
+- **Admin UI rewrites**: `/api/*`, `/admin/*`, `/tenant/*`, `/dev/*`, `/me`, `/healthz` → `localhost:5001`
+- **Workflow**: "Start application" runs `bash start.sh`, waits on port 5000
 
 ## Environment Variables
 | Variable | Description | Required |
 |---|---|---|
 | `DATABASE_URL` | PostgreSQL connection string | Yes (secret) |
 | `BETTER_AUTH_SECRET` | Session signing secret (min 24 chars) | Yes (secret) |
+| `BETTER_AUTH_URL` | Public URL of the auth service | shared env var |
 | `AUTH_MODE` | `single` or `multi` | shared env var |
 | `NODE_ENV` | `development` or `production` | shared env var |
+| `PORT` | Backend API port (default 5001) | shared env var |
 | `ENABLE_DEV_ENDPOINTS` | `true`/`false` | shared env var |
 | `NESTED_TENANCY_ENABLED` | `true`/`false` | shared env var |
+| `TRUSTED_ORIGINS` | Comma-separated allowed CORS origins | shared env var |
 
 ## Database Setup
-- Uses Neon PostgreSQL serverless
+- Uses Neon PostgreSQL serverless (DATABASE_URL secret)
 - Schema: `public` (tenants registry) + `authcore_system` (admin system) + per-tenant schemas
 - Migrations: Prisma (`prisma/migrations/`) — run `npm run prisma:deploy`
-- The multi-tenant migration (`20260223_multi_tenant_system`) creates `public.tenants`, `public.applications`, `authcore_system.*` tables
+- The multi-tenant migration creates `public.tenants`, `public.applications`, `authcore_system.*` tables
 
 ## Key Features
 - **Multi-tenancy**: Schema isolation per tenant, LRU connection eviction
 - **Auth modes**: `single` (dedicated) or `multi` (shared)
 - **Security**: Rate limiting, IP blocking, HSTS, CSP-ready headers, 2FA (TOTP)
-- **Admin Dashboard**: Served as static files from `admin-ui/out/` at root `/`
+- **Admin Dashboard**: Accessible at root `/` via the Next.js frontend
 - **API routes**: `/api/auth/*`, `/tenant/:id/api/auth/*`, `/admin/*`, `/dev/*`
-
-## Replit Configuration
-- **Workflow**: "Auth Service" runs `npm run dev`, waits on port 5000
-- **Ports**: 5000 (main), 4000 (unused)
-- **Database**: Neon PostgreSQL (DATABASE_URL secret)
