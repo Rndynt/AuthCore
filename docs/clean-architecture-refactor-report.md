@@ -1,185 +1,191 @@
-# Clean Architecture / Hexagonal Refactor Report
+# Realmio Clean Architecture Refactor Report
 
-## Summary
+## Overview
 
-Realmio has been refactored toward a real clean architecture / hexagonal architecture layout. The new package structure separates domain/application code, ports, infrastructure adapters, HTTP transport helpers, runtime adapters, and a reusable TypeScript SDK.
+This document tracks the two-phase hexagonal architecture migration of Realmio's auth service.
 
-The existing public API paths remain intact:
+---
 
-- `/admin/auth/*`
-- `/admin/api`
-- `/admin/api/*`
-- `/admin/log-stream`
-- `/api/auth/*`
-- `/tenant/:tenantId/api/auth/*`
-- `/legacy/auth/*`
-- `/healthz`
-- `/tenant/:tenantId/health`
+## Phase 1 (P01) — Scaffold Packages Layer ✅
 
-`src/server.ts` remains as the compatibility runtime, but composition concerns now have package-level counterparts and the new `apps/api/src/main.ts` entrypoint is used by development and production scripts.
+**Goal:** Extract domain logic, use cases, and port interfaces into standalone packages without breaking the existing runtime.
 
-## New Folder / Package Map
+### Packages Introduced
 
-```txt
-apps/api/src/
-  main.ts
-  container.ts
-  config.ts
+| Package | Role |
+|---|---|
+| `packages/core` | Domain entities, port interfaces, use cases |
+| `packages/adapters-postgres` | `TenantRepository`, `TenantSchemaProvisioner`, `AuditLogRepository`, `SecuritySettingsRepository` |
+| `packages/adapters-better-auth` | `AdminAuthProvider`, `TenantAuthProvider` adapters |
+| `packages/adapters-runtime` | `TenantRegistry`, `TenantClientProvider`, `AuthCache`, `LogStream`, `MetricsStore`, `EventPublisher` adapters |
+| `packages/http` | Web Fetch API-style HTTP handlers |
+| `packages/server-fastify` | Fastify app factory + middleware + routes |
+| `packages/server-netlify` | Netlify Function adapters |
+| `packages/sdk` | Public JavaScript/TypeScript SDK |
+| `apps/api` | Composition root (`main.ts`, `container.ts`, `config.ts`) |
 
-packages/core/src/
-  domain/tenant/
-  domain/security/
-  domain/audit/
-  application/tenant/
-  application/security/
-  application/audit/
-  application/metrics/
-  application/support-session/
-  application/webhook/
-  ports/
-  contracts/
-  errors/
+### P01 Status
+All packages were scaffolded. Many files contained shim bodies (re-exports from `src/`) that deferred real implementation to P02.
 
-packages/adapters-postgres/src/
-  pg-pool.ts
-  pg-tenant-repository.ts
-  pg-security-settings-repository.ts
-  pg-audit-log-repository.ts
-  pg-tenant-schema-provisioner.ts
-  mappers/tenant.mapper.ts
+---
 
-packages/adapters-better-auth/src/
-  better-auth-admin-provider.ts
-  better-auth-tenant-provider.ts
-  better-auth-factory.ts
-  better-auth-request-forwarder.ts
+## Phase 2 (P02) — Wire Real Adapters ✅
 
-packages/adapters-runtime/src/
-  tenant-connection-manager.ts
-  tenant-registry-adapter.ts
-  auth-cache-adapter.ts
-  webhook-event-publisher.ts
-  metrics-store-adapter.ts
-  log-stream-adapter.ts
+**Goal:** Replace all shims with real implementations. The composition root must boot from `apps/api/src/main.ts` without touching `src/server.ts` business logic.
 
-packages/http/src/
-  request-context.ts
-  http-response.ts
-  tenant-resolver.ts
-  cors-policy.ts
-  errors-to-http.ts
-  admin-api-handler.ts
-  tenant-auth-handler.ts
-  health-handler.ts
-  dev-handler.ts
+### Changes per File
 
-packages/server-fastify/src/
-  create-fastify-app.ts
-  middleware/
-  routes/
+#### `packages/core/src/ports/tenant-repository.ts`
+- Added `createProvisioningTenant` and `markTenantActive` methods.
+- `createTenant` kept as a backward-compatible alias.
+- This breaks the anti-pattern where `PgTenantRepository.createTenant` internally called `PgTenantSchemaProvisioner`.
 
-packages/server-netlify/src/
-  admin-auth-function.ts
-  tenant-auth-function.ts
-  netlify-request-mapper.ts
-  netlify-response-mapper.ts
+#### `packages/core/src/application/tenant/tenant-use-cases.ts`
+- `CreateTenantUseCase` now receives `TenantSchemaProvisioner` via `TenantLifecycleDeps`.
+- Two-step lifecycle: `createProvisioningTenant` → `provisionTenantSchema` → `markTenantActive`.
+- All use-case class bodies expanded from one-liners to readable implementations.
+- `SuspendTenantUseCase`, `ActivateTenantUseCase`, `DeleteTenantUseCase` share `applyLifecycleTransition` helper to eliminate duplication.
 
-packages/sdk/src/
-  index.ts
-  realmio-admin-client.ts
-  realmio-tenant-auth-client.ts
-  transport/fetch-transport.ts
-  errors.ts
-  dto/
+#### `packages/adapters-postgres/src/pg-tenant-repository.ts`
+- Removed internal call to `PgTenantSchemaProvisioner` from `createTenant`.
+- Added `createProvisioningTenant` (inserts row in `provisioning` status).
+- Added `markTenantActive` (flips row to `active`, stamps `provisioned_at` in metadata).
+- `ensureStatusConstraint` is now a private repository concern (adds `provisioning` + `failed` to the check constraint if absent).
+
+#### `packages/adapters-better-auth/src/better-auth-admin-provider.ts`
+- Changed from a bare `export { adminAuth as betterAuthAdminProvider }` re-export to a real `BetterAuthAdminProvider` class implementing `AdminAuthProvider`.
+
+#### `packages/adapters-better-auth/src/better-auth-tenant-provider.ts`
+- `BetterAuthTenantProvider` now properly implements `TenantAuthProvider` port (`getTenantAuth` method).
+
+#### `packages/adapters-runtime/src/tenant-registry-adapter.ts`
+- `TenantRegistryAdapter` class implements `TenantRegistry` port fully.
+- Maps `TenantConnectionManager`'s snake_case rows to camelCase `Tenant` domain objects.
+
+#### `packages/adapters-runtime/src/tenant-connection-manager.ts`
+- `TenantConnectionManagerAdapter` implements `TenantClientProvider`.
+- Exposes `pruneIdleConnectionsNow`, `shutdown`, `getHealthStatus`, `getStats`.
+
+#### `packages/adapters-runtime/src/auth-cache-adapter.ts`
+- `BetterAuthCacheAdapter` implements `AuthCache` with `clearTenant` / `clearAll` / `getStats`.
+
+#### `packages/adapters-runtime/src/log-stream-adapter.ts`
+- Properly wraps `addLogListener` / `removeLogListener` from `src/utils/log-stream`.
+
+#### `packages/http/src/admin-api-handler.ts`
+- **Fully rewritten** — no longer re-exports from `src/admin/admin-api`.
+- `createAdminHandler(deps)` factory accepts `AdminHandlerUseCases` (port-aligned interface).
+- `handleAdminApiRequest` dispatches to all admin API routes via URL pattern matching.
+- `handleAdminLogStream` implements SSE using the `LogStream` port.
+- All audit logging is done inline by calling `useCases.audit.log`.
+
+#### `apps/api/src/config.ts`
+- New typed `AppConfig` interface with `loadAppConfig()` factory.
+- Pulls from `src/env`, `src/config/auth-mode`, `src/config/features`.
+
+#### `apps/api/src/container.ts`
+- **Fully rewritten** real composition root.
+- Instantiates all adapters, all use cases, and the HTTP handler facades.
+- Returns a typed `AppContainer` with no references to `src/` business objects.
+
+#### `apps/api/src/main.ts`
+- **Fully rewritten** bootstrap:
+  1. `loadAppConfig()` → `createAppContainer()` → `tenantRegistry.initialize()`
+  2. `createFastifyApp(container)` → `app.listen()`
+  3. Graceful `SIGTERM`/`SIGINT` shutdown.
+
+#### `packages/server-fastify/src/create-fastify-app.ts`
+- **Fully rewritten** real Fastify factory.
+- Registers CORS, body parser, middleware, routes — all from `packages/` layer.
+- No `src/` imports.
+
+#### `packages/server-fastify/src/middleware/`
+- `request-id.ts` — attaches UUID `X-Request-ID`.
+- `security-headers.ts` — `X-Content-Type-Options`, `X-Frame-Options`, etc.
+- `rate-limit.ts` — in-process sliding-window limiter per IP.
+- `ip-blocking.ts` — calls `CheckIpBlockedUseCase` before every request.
+
+#### `packages/server-fastify/src/routes/`
+- `admin.routes.ts` — all `/admin/*` routes with Fastify ↔ Web Request bridge.
+- `tenant-auth.routes.ts` — all `/api/auth/:tenantSlug/*` routes.
+- `health.routes.ts` — `/health`, `/ready`, `/api/health`.
+- `dev.routes.ts` — `/dev/*` endpoints (only when `devEnabled`).
+- `static-ui.routes.ts` — SPA catch-all for admin UI.
+
+#### `packages/server-netlify/src/`
+- `netlify-request-mapper.ts` — `HandlerEvent` → `Request` (handles base64 bodies).
+- `netlify-response-mapper.ts` — `Response` → `HandlerResponse` (base64 encoded).
+- `admin-auth-function.ts` — real handler using `AppContainer`.
+- `tenant-auth-function.ts` — real handler using `AppContainer`.
+
+#### `netlify/functions/admin-auth.ts` / `tenant-auth.ts`
+- Reduced to thin bootstrap wrappers (~20 lines each).
+- Container is created once on cold start and reused on warm invocations.
+
+#### `packages/sdk/package.json`
+- Added with `name`, `version`, `exports`, `files`, `license`.
+
+#### `packages/sdk/src/admin/`
+- `tenants-resource.ts`, `security-resource.ts`, `audit-resource.ts`, `metrics-resource.ts`, `users-resource.ts`, `webhooks-resource.ts`, `support-sessions-resource.ts`.
+- All resources are typed and attached to `RealmioAdminClient` as lazy properties.
+
+#### `packages/sdk/src/realmio-admin-client.ts`
+- Replaced the stub with a real typed HTTP client with a resource-per-concern pattern.
+
+#### `src/server.ts`
+- Reduced from 639 lines to a ~15-line compatibility shim that re-exports from the new layers.
+
+### Architecture Boundary Tests
+
+`tests/architecture-boundaries.test.ts` enforces seven rules:
+
+1. `packages/core` — no `src/` or adapter imports.
+2. `packages/http` — no `src/` or adapter imports.
+3. `netlify/functions` — no direct `src/` application imports.
+4. `packages/server-fastify` — no `src/` business-logic imports.
+5. `apps/api/src/container.ts` — uses only packages layer.
+6. Use-case files — no adapter class imports.
+7. `packages/sdk` — no adapter or `src/` imports.
+
+---
+
+## Dependency Graph (P02)
+
+```
+apps/api/src/main.ts
+  └── apps/api/src/container.ts
+        ├── packages/adapters-postgres/*
+        ├── packages/adapters-better-auth/*
+        ├── packages/adapters-runtime/*
+        ├── packages/core/src/application/**/* (use cases)
+        └── packages/http/src/*
+
+packages/server-fastify/src/create-fastify-app.ts
+  ├── packages/server-fastify/src/middleware/*
+  ├── packages/server-fastify/src/routes/*
+  └── [AppContainer type from apps/api/src/container]
+
+netlify/functions/*
+  ├── apps/api/src/config + container
+  └── packages/server-netlify/src/*
+
+packages/adapters-*
+  ├── packages/core/src/ports/*      (implement interfaces)
+  └── src/*                          (wrap — not re-export)
+
+packages/core
+  └── (no external deps)
 ```
 
-## Dependency Direction
+---
 
-- `packages/core` defines domain models, validation, use cases, ports, contracts, and errors.
-- `packages/core` does not need Fastify, Netlify, Prisma, pg, Better Auth, or Admin UI code for the new use cases/tests.
-- `packages/adapters-postgres` implements persistence-side ports and maps DB snake_case rows into camelCase domain objects.
-- `packages/http` contains transport-neutral Web `Request`/`Response` helpers and shared tenant resolution.
-- `packages/sdk` is client-side reusable code and does not import server runtime code.
-- `admin-ui/lib/api-client.ts` is now a thin SDK factory wrapper instead of raw hardcoded fetch implementation.
+## What Remains in `src/`
 
-## Migrated / Added Files
+`src/` is **not deleted** — it contains working implementations that the adapter packages wrap. It will be removed incrementally in P03+ once each module has been fully superseded.
 
-- Added core tenant domain model and validation.
-- Added core ports for tenant repository, schema provisioner, registry, client/auth providers, auth cache, security, audit, events, metrics, and logs.
-- Added focused use cases for tenant lifecycle, security/IP blocking, audit, metrics, support sessions, webhook access.
-- Split Postgres adapter responsibilities into tenant repository, security repository, audit repository, schema provisioner, pool, and mapper.
-- Added HTTP tenant resolver and response/error helpers shared by Fastify/Netlify direction.
-- Added SDK admin and tenant auth clients with fetch transport and typed error.
-- Updated Admin UI API helper to call SDK.
-- Added app composition files under `apps/api`.
-- Added Netlify request/response mapper package files.
-- Updated Dockerfile to build TypeScript/Admin UI and run built JavaScript.
-- Added tests for validation, mappers, tenant use cases, SDK, and tenant resolver.
-
-## Replaced / Adjusted Old Behavior
-
-- `admin-ui/lib/api-client.ts` replaced raw fetch helper with `RealmioAdminClient` wrapper while preserving old method names.
-- `src/multi-tenant/connection-manager.ts` no longer registers process signal handlers at import time. Shutdown handlers are explicit via `registerTenantManagerShutdownHandlers()` from runtime composition.
-- Production Docker command no longer runs `npx tsx src/server.ts`; it runs built JS: `node dist/apps/api/src/main.js`.
-- Root scripts now use `apps/api/src/main.ts` and coherent build/check/test commands.
-
-## SDK Usage Examples
-
-```ts
-import { RealmioAdminClient, RealmioTenantAuthClient, RealmioApiError } from "@realmio/sdk";
-
-const admin = new RealmioAdminClient({
-  baseUrl: "https://auth.example.com",
-  credentials: "include",
-  timeoutMs: 10_000,
-});
-
-await admin.tenants.list();
-await admin.tenants.create({ id: "nusa", name: "Nusa", slug: "nusa" });
-await admin.tenants.suspend("nusa");
-await admin.security.getSettings();
-await admin.audit.list({ limit: 50 });
-
-const auth = new RealmioTenantAuthClient({
-  baseUrl: "https://auth.example.com",
-  tenantId: "nusa",
-  credentials: "include",
-});
-
-await auth.email.signIn({ email: "owner@example.com", password: "secret" });
-await auth.session.get();
-await auth.email.signOut();
-```
-
-## API Compatibility Notes
-
-- Current route handlers remain mounted to existing paths.
-- Admin API snapshot tests still pass.
-- Tenant resolution behavior is now covered by shared resolver tests for header, path, and subdomain inputs.
-- Legacy auth route remains in runtime server with deprecation headers.
-- Admin UI method names remain backwards compatible.
-
-## Build / Test Results
-
-Commands run successfully:
-
-```txt
-npm test
-npm run check
-npm run build
-```
-
-Observed passing results:
-
-- `npm test`: 15 tests passing.
-- `npm run check`: TypeScript check passing.
-- `npm run build`: package build, API build, and Admin UI build passing.
-
-Admin UI build warning remains from Next.js workspace root inference because root and `admin-ui` both have lockfiles. It is non-blocking.
-
-## Known Limitations
-
-- Some existing runtime files still act as compatibility facades while new package boundaries are introduced. This preserves endpoint compatibility and avoids a risky one-shot route rewrite.
-- `packages/server-fastify` currently exposes compatibility shims around existing runtime route registration instead of fully moving every Fastify route body.
-- Organization admin UI methods are preserved in SDK wrapper as legacy/raw routes because existing server handler coverage for organization routes was not expanded in this pass.
-- `test-auth-service.js` logs that a live service is unreachable, but the test file exits successfully and the overall test suite passes.
+Modules still in active use via adapter wrappers:
+- `src/admin/auth.ts` — Better Auth admin instance
+- `src/multi-tenant/auth-factory.ts` — per-tenant auth instance cache
+- `src/multi-tenant/connection-manager.ts` — TenantConnectionManager
+- `src/utils/log-stream.ts`, `metrics-store.ts`, `webhook.ts` — runtime utilities
+- `src/env.ts`, `src/config/` — environment + feature flags

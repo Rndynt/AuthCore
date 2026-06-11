@@ -1,3 +1,29 @@
-export function getRequestUrl(event: { rawUrl: string; headers: Record<string, string | undefined> }): URL { const url = new URL(event.rawUrl); const originalPath = event.headers['x-nf-original-path'] ?? event.headers['x-nf-original-pathname'] ?? event.headers['x-original-path']; if (originalPath) url.pathname = originalPath; const originalQuery = event.headers['x-nf-original-query']; if (originalQuery) url.search = originalQuery.startsWith('?') ? originalQuery : `?${originalQuery}`; const functionPrefix = '/.netlify/functions/'; if (url.pathname.startsWith(functionPrefix)) { const afterPrefix = url.pathname.slice(functionPrefix.length); const firstSlash = afterPrefix.indexOf('/'); if (firstSlash !== -1) url.pathname = afterPrefix.slice(firstSlash); } return url; }
-export function netlifyEventToRequest(event: any, url = getRequestUrl(event)): Request { const headers = new Headers(); for (const [k, v] of Object.entries(event.headers ?? {})) if (v) headers.set(k, String(v)); const body = event.body ? (event.isBase64Encoded ? Buffer.from(event.body, 'base64') : event.body) : undefined; return new Request(url.toString(), { method: event.httpMethod, headers, body }); }
-export function getClientIp(event: { headers: Record<string, string | undefined> }) { return event.headers['x-forwarded-for']?.split(',')[0]?.trim() ?? event.headers['client-ip'] ?? event.headers['x-nf-client-connection-ip']; }
+import type { HandlerEvent } from '@netlify/functions';
+
+/**
+ * Convert a Netlify HandlerEvent into a standard Web Fetch API Request.
+ */
+export function netlifyEventToWebRequest(event: HandlerEvent): Request {
+  const scheme = event.headers?.['x-forwarded-proto'] ?? 'https';
+  const host   = event.headers?.host ?? 'localhost';
+  const url    = `${scheme}://${host}${event.rawUrl ?? event.path}`;
+
+  const headers = new Headers(
+    Object.fromEntries(
+      Object.entries(event.headers ?? {}).map(([k, v]) => [k, v ?? '']),
+    ) as Record<string, string>,
+  );
+
+  const method  = event.httpMethod.toUpperCase();
+  const hasBody = method !== 'GET' && method !== 'HEAD';
+  const bodyRaw = hasBody ? event.body : undefined;
+
+  const body =
+    bodyRaw != null
+      ? event.isBase64Encoded
+        ? Buffer.from(bodyRaw, 'base64')
+        : bodyRaw
+      : undefined;
+
+  return new Request(url, { method, headers, body: body as BodyInit | null });
+}

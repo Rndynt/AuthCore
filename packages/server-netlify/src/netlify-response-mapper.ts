@@ -1,2 +1,21 @@
-export function createNetlifyResponseMapper(trustedOrigins: string[]) { const allowOrigin = (origin?: string) => origin && trustedOrigins.includes(origin) ? origin : trustedOrigins[0] ?? origin ?? '*'; return async function responseToNetlifyResult(res: Response, origin?: string) { const headers: Record<string,string> = { 'Access-Control-Allow-Origin': allowOrigin(origin), 'Access-Control-Allow-Credentials': 'true' }; const setCookies: string[] = []; res.headers.forEach((val, key) => key.toLowerCase() === 'set-cookie' ? setCookies.push(val) : headers[key] = val); const body = res.body ?? await res.text().catch(() => ''); return { statusCode: res.status, headers, multiValueHeaders: setCookies.length ? { 'Set-Cookie': setCookies } : undefined, body: body as any }; }; }
-export function handleCorsPreflight(trustedOrigins: string[], origin?: string) { return { statusCode: 200, headers: { 'Access-Control-Allow-Origin': origin && trustedOrigins.includes(origin) ? origin : trustedOrigins[0] ?? origin ?? '*', 'Access-Control-Allow-Credentials': 'true', 'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, x-api-key, X-Tenant-Id' }, body: '' }; }
+import type { HandlerResponse } from '@netlify/functions';
+
+/**
+ * Convert a Web Fetch API Response into a Netlify HandlerResponse.
+ */
+export async function webResponseToNetlify(response: Response): Promise<HandlerResponse> {
+  const headers: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
+
+  const rawBody = await response.arrayBuffer();
+  const body = Buffer.from(rawBody).toString('base64');
+
+  return {
+    statusCode: response.status,
+    headers,
+    body,
+    isBase64Encoded: true,
+  };
+}
