@@ -1,221 +1,165 @@
+import { RealmioAdminClient } from '../../packages/sdk/src/index';
+
 const isBrowser = typeof window !== 'undefined';
 
-// Untuk production di Zo Computer, gunakan origin saat ini
-// Untuk development, gunakan localhost
 const resolveApiBase = (): string => {
-  if (isBrowser) {
-    // Selalu gunakan origin saat ini (bekerja di Zo Computer dan localhost)
-    return window.location.origin;
-  }
-  // SSR: gunakan env atau default
+  if (isBrowser) return window.location.origin;
   return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 };
 
 export const apiBaseUrl = resolveApiBase();
 
-export const apiClient = {
-  async request(endpoint: string, options?: RequestInit) {
-    const base = resolveApiBase();
-    const res = await fetch(`${base}${endpoint}`, {
-      ...options,
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || `HTTP ${res.status}`);
-    }
-    return res.json();
-  },
-  
-  async login(email: string, password: string) {
-    return this.request('/admin/auth/sign-in/email', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-  },
-  
-  async logout() {
-    return this.request('/admin/auth/sign-out', { method: 'POST' });
-  },
-  
-  async getSession() {
-    return this.request('/admin/auth/get-session');
-  },
-  
-  async getTenants() {
-    return this.request('/admin/api/tenants');
+const createClient = () => new RealmioAdminClient({
+  baseUrl: resolveApiBase(),
+  credentials: 'include',
+});
+
+export const apiClient: any = {
+  request<T = any>(endpoint: string, options?: RequestInit) {
+    return createClient().request<T>(endpoint, options);
   },
 
-  async getTenantMetrics(id: string) {
-    return this.request(`/admin/api/tenants/${id}/metrics`);
-  },
-  
-  async createTenant(data: { id: string; name: string; slug: string }) {
-    return this.request('/admin/api/tenants', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-  
-  async suspendTenant(id: string) {
-    return this.request(`/admin/api/tenants/${id}/suspend`, { method: 'POST' });
-  },
-  
-  async activateTenant(id: string) {
-    return this.request(`/admin/api/tenants/${id}/activate`, { method: 'POST' });
-  },
-  
-  async deleteTenant(id: string) {
-    return this.request(`/admin/api/tenants/${id}`, { method: 'DELETE' });
-  },
-  
-  async getMetrics() {
-    return this.request('/admin/api/metrics');
+  login(email: string, password: string) {
+    return createClient().auth.login(email, password);
   },
 
-  async getOverview() {
-    return this.request('/admin/api/overview');
+  logout() {
+    return createClient().auth.logout();
   },
 
-  async searchUsers(params: { q?: string; tenantId?: string; limit?: number }) {
-    const searchParams = new URLSearchParams();
-    if (params.q) searchParams.set('q', params.q);
-    if (params.tenantId) searchParams.set('tenantId', params.tenantId);
-    if (params.limit) searchParams.set('limit', String(params.limit));
-    const query = searchParams.toString();
-    return this.request(`/admin/api/users/search${query ? `?${query}` : ''}`);
+  getSession(): Promise<any> {
+    return createClient().auth.getSession();
   },
 
-  async revokeUserSessions(tenantId: string, userId: string) {
-    return this.request(`/admin/api/tenants/${tenantId}/users/${userId}/revoke-sessions`, { method: 'POST' });
+  getTenants() {
+    return createClient().tenants.list();
   },
 
-  async createSupportSession(tenantId: string, userId: string, minutes?: number) {
-    return this.request(`/admin/api/tenants/${tenantId}/users/${userId}/support-session`, {
-      method: 'POST',
-      body: JSON.stringify({ minutes }),
-    });
+  getTenantMetrics(id: string) {
+    return createClient().tenants.metrics(id);
   },
 
-  async getSupportSessions() {
-    return this.request('/admin/api/support-sessions');
+  createTenant(data: { id: string; name: string; slug: string }) {
+    return createClient().tenants.create(data);
   },
 
-  async revokeSupportSession(tenantId: string, sessionId: string) {
-    return this.request(`/admin/api/support-sessions/${tenantId}/${sessionId}`, { method: 'DELETE' });
+  suspendTenant(id: string) {
+    return createClient().tenants.suspend(id);
   },
 
-  async getSecuritySettings() {
-    return this.request('/admin/api/security/settings');
+  activateTenant(id: string) {
+    return createClient().tenants.activate(id);
   },
 
-  async updateSecuritySettings(payload: Record<string, any>) {
-    return this.request('/admin/api/security/settings', {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    });
+  deleteTenant(id: string) {
+    return createClient().tenants.delete(id);
   },
 
-  // IP Blocking
-  async getIpBlocklist() {
-    return this.request('/admin/api/security/ip-blocklist');
+  getMetrics() {
+    return createClient().metrics.system();
   },
 
-  async blockIp(ip: string, reason: string, expiresInMs?: number) {
-    return this.request('/admin/api/security/ip-blocklist', {
-      method: 'POST',
-      body: JSON.stringify({ ip, reason, expiresInMs }),
-    });
+  getOverview() {
+    return createClient().metrics.overview();
   },
 
-  async unblockIp(ip: string) {
-    return this.request(`/admin/api/security/ip-blocklist/${encodeURIComponent(ip)}`, {
-      method: 'DELETE',
-    });
+  searchUsers(params: { q?: string; tenantId?: string; limit?: number }) {
+    return createClient().users.search(params);
   },
 
-  async checkIpBlocked(ip: string) {
-    return this.request(`/admin/api/security/ip-check/${encodeURIComponent(ip)}`);
+  revokeUserSessions(tenantId: string, userId: string) {
+    return createClient().users.revokeSessions(tenantId, userId);
   },
 
-  async getDashboardMetrics() {
-    return this.request('/admin/api/dashboard-metrics');
+  createSupportSession(tenantId: string, userId: string, minutes?: number) {
+    return createClient().users.createSupportSession(tenantId, userId, minutes);
   },
 
-  async pruneConnections(force?: boolean) {
-    return this.request('/admin/api/connections/prune', {
-      method: 'POST',
-      body: JSON.stringify({ force }),
-    });
+  getSupportSessions() {
+    return createClient().supportSessions.list();
   },
 
-  async getAuditLogs(params: Record<string, any> = {}) {
-    const searchParams = new URLSearchParams();
-    Object.entries(params).forEach(([k, v]) => { if (v) searchParams.set(k, String(v)); });
-    const query = searchParams.toString();
-    return this.request(`/admin/api/audit-logs${query ? `?${query}` : ''}`);
+  revokeSupportSession(tenantId: string, sessionId: string) {
+    return createClient().supportSessions.revoke(tenantId, sessionId);
   },
 
-  async getOrganizations() {
-    return this.request('/admin/api/organizations');
+  getSecuritySettings() {
+    return createClient().security.getSettings();
   },
 
-  async createOrganization(data: { name: string; slug: string; description?: string }) {
-    return this.request('/admin/api/organizations', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  updateSecuritySettings(payload: Record<string, any>) {
+    return createClient().security.updateSettings(payload);
   },
 
-  async getOrganization(id: string) {
-    return this.request(`/admin/api/organizations/${id}`);
+  getIpBlocklist() {
+    return createClient().security.getIpBlocklist();
   },
 
-  async updateOrganization(id: string, data: Record<string, any>) {
-    return this.request(`/admin/api/organizations/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  blockIp(ip: string, reason: string, expiresInMs?: number) {
+    return createClient().security.blockIp(ip, reason, expiresInMs);
   },
 
-  async deleteOrganization(id: string) {
-    return this.request(`/admin/api/organizations/${id}`, { method: 'DELETE' });
+  unblockIp(ip: string) {
+    return createClient().security.unblockIp(ip);
   },
 
-  async addOrganizationMember(orgId: string, userId: string, role: string = 'member') {
-    return this.request(`/admin/api/organizations/${orgId}/members`, {
-      method: 'POST',
-      body: JSON.stringify({ userId, role }),
-    });
+  checkIpBlocked(ip: string) {
+    return createClient().security.checkIpBlocked(ip);
   },
 
-  async updateOrganizationMember(orgId: string, memberId: string, role: string) {
-    return this.request(`/admin/api/organizations/${orgId}/members/${memberId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ role }),
-    });
+  getDashboardMetrics() {
+    return createClient().metrics.dashboard();
   },
 
-  async removeOrganizationMember(orgId: string, memberId: string) {
-    return this.request(`/admin/api/organizations/${orgId}/members/${memberId}`, { method: 'DELETE' });
+  pruneConnections(force?: boolean) {
+    return createClient().connections.prune(force);
   },
 
-  async sendOrganizationInvitation(orgId: string, email: string, role: string = 'member') {
-    return this.request(`/admin/api/organizations/${orgId}/invitations`, {
-      method: 'POST',
-      body: JSON.stringify({ email, role }),
-    });
+  getAuditLogs(params: Record<string, any> = {}) {
+    return createClient().audit.list(params);
   },
 
-  async getOrganizationInvitations(orgId: string) {
-    return this.request(`/admin/api/organizations/${orgId}/invitations`);
+  getOrganizations() {
+    return createClient().request('/admin/api/organizations');
   },
 
-  async revokeOrganizationInvitation(orgId: string, invitationId: string) {
-    return this.request(`/admin/api/organizations/${orgId}/invitations/${invitationId}`, { method: 'DELETE' });
+  createOrganization(data: { name: string; slug: string; description?: string }) {
+    return createClient().request('/admin/api/organizations', { method: 'POST', body: JSON.stringify(data) });
+  },
+
+  getOrganization(id: string) {
+    return createClient().request(`/admin/api/organizations/${id}`);
+  },
+
+  updateOrganization(id: string, data: Record<string, any>) {
+    return createClient().request(`/admin/api/organizations/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  },
+
+  deleteOrganization(id: string) {
+    return createClient().request(`/admin/api/organizations/${id}`, { method: 'DELETE' });
+  },
+
+  addOrganizationMember(orgId: string, userId: string, role: string = 'member') {
+    return createClient().request(`/admin/api/organizations/${orgId}/members`, { method: 'POST', body: JSON.stringify({ userId, role }) });
+  },
+
+  updateOrganizationMember(orgId: string, memberId: string, role: string) {
+    return createClient().request(`/admin/api/organizations/${orgId}/members/${memberId}`, { method: 'PUT', body: JSON.stringify({ role }) });
+  },
+
+  removeOrganizationMember(orgId: string, memberId: string) {
+    return createClient().request(`/admin/api/organizations/${orgId}/members/${memberId}`, { method: 'DELETE' });
+  },
+
+  sendOrganizationInvitation(orgId: string, email: string, role: string = 'member') {
+    return createClient().request(`/admin/api/organizations/${orgId}/invitations`, { method: 'POST', body: JSON.stringify({ email, role }) });
+  },
+
+  getOrganizationInvitations(orgId: string) {
+    return createClient().request(`/admin/api/organizations/${orgId}/invitations`);
+  },
+
+  revokeOrganizationInvitation(orgId: string, invitationId: string) {
+    return createClient().request(`/admin/api/organizations/${orgId}/invitations/${invitationId}`, { method: 'DELETE' });
   },
 };

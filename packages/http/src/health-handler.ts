@@ -1,0 +1,1 @@
+export class HealthHandler { constructor(private deps: { mode: string; features: unknown; connectionHealth?: () => unknown }) {} handle() { return new Response(JSON.stringify({ ok: true, mode: this.deps.mode, timestamp: new Date().toISOString(), features: this.deps.features, connections: this.deps.connectionHealth?.() }), { headers: { 'content-type': 'application/json' } }); } }

@@ -1,0 +1,3 @@
+import type { AuditLogRepository } from '../../ports/audit-log-repository';
+export class LogAuditActionUseCase { constructor(private deps: { auditLogRepository: AuditLogRepository }) {} execute(adminUserId: string, action: string, targetType: string, targetId: string, details: Record<string, unknown> = {}, ipAddress?: string) { return this.deps.auditLogRepository.logAuditAction(adminUserId, action, targetType, targetId, details, ipAddress); } }
+export class GetAuditLogsUseCase { constructor(private deps: { auditLogRepository: AuditLogRepository }) {} execute(limit: number, offset: number, filters?: Record<string, unknown>) { return this.deps.auditLogRepository.getAuditLogs(limit, offset, filters); } }

@@ -1,0 +1,3 @@
+export class RegisterWebhookUseCase { constructor(private deps: { registry: { registerWebhook(input: any): unknown } }) {} execute(input: unknown) { return this.deps.registry.registerWebhook(input); } }
+export class UnregisterWebhookUseCase { constructor(private deps: { registry: { unregisterWebhook(id: string): boolean } }) {} execute(id: string) { return this.deps.registry.unregisterWebhook(id); } }
+export class GetWebhooksUseCase { constructor(private deps: { registry: { getWebhooks(): unknown; getWebhookStats(): unknown } }) {} execute() { return { webhooks: this.deps.registry.getWebhooks(), stats: this.deps.registry.getWebhookStats() }; } }

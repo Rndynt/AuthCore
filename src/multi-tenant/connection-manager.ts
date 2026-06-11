@@ -33,6 +33,7 @@ interface ConnectionManagerConfig {
   cleanupIntervalMs: number;
   maxDisconnectAttempts: number;
   shutdownTimeoutMs: number;
+  startCleanupScheduler?: boolean;
 }
 
 const DEFAULT_CONFIG: ConnectionManagerConfig = {
@@ -82,7 +83,9 @@ export class TenantConnectionManager {
       connectionTimeoutMillis: 10000,
     });
 
-    this.startCleanupScheduler();
+    if (config.startCleanupScheduler !== false) {
+      this.startCleanupScheduler();
+    }
   }
 
   /**
@@ -407,7 +410,7 @@ export class TenantConnectionManager {
     console.log('✅ Tenant registry reloaded');
   }
 
-  private startCleanupScheduler() {
+  startCleanupScheduler() {
     // Don't start cleanup scheduler in serverless environments
     // (Netlify Functions, AWS Lambda, Vercel) - Lambda containers are
     // short-lived and don't need periodic cleanup
@@ -698,19 +701,19 @@ export class TenantConnectionManager {
 // Singleton instance
 export const tenantManager = new TenantConnectionManager();
 
-// Detect serverless environment (Netlify Functions, AWS Lambda, Vercel, etc.)
-const isServerless = !!(
-  process.env.NETLIFY ||
-  process.env.AWS_LAMBDA_FUNCTION_NAME ||
-  process.env.VERCEL ||
-  process.env.LAMBDA_TASK_ROOT ||
-  process.env.AWS_EXECUTION_ENV
-);
+export function registerTenantManagerShutdownHandlers(manager: TenantConnectionManager = tenantManager) {
+  const isServerless = !!(
+    process.env.NETLIFY ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.VERCEL ||
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.AWS_EXECUTION_ENV
+  );
 
-// Only register graceful shutdown handlers in non-serverless environments
-// In serverless, SIGTERM is handled by the platform and we don't need to
-// explicitly close connections (they'll be garbage collected)
-if (!isServerless) {
+  if (isServerless) {
+    return;
+  }
+
   let isShuttingDown = false;
 
   const handleShutdown = async (signal: string) => {
@@ -719,11 +722,11 @@ if (!isServerless) {
       return;
     }
     isShuttingDown = true;
-    
+
     console.log(`\n🛑 Received ${signal}, starting graceful shutdown...`);
-    
+
     try {
-      await tenantManager.shutdown();
+      await manager.shutdown();
       process.exit(0);
     } catch (error) {
       console.error('❌ Error during shutdown:', error);

@@ -1,0 +1,2 @@
+export interface CorsPolicy { allowOrigin(origin?: string): string | boolean; }
+export function createCorsPolicy(trustedOrigins: string[]): CorsPolicy { return { allowOrigin(origin?: string) { if (!origin) return true; try { const u = new URL(origin); const normalized = `${u.protocol}//${u.host}`; return trustedOrigins.includes(normalized) ? normalized : false; } catch { return trustedOrigins.includes(origin) ? origin : false; } } }; }

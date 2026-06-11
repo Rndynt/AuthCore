@@ -11,7 +11,7 @@ import { env, trustedOrigins, devEnabled, isOriginTrusted } from "./env.js";
 import { registerDevEndpoints } from "./dev.js";
 import { getAuthConfig, displayAuthConfig, validateAuthConfig } from "./config/auth-mode.js";
 import { getFeatureFlags, displayFeatureFlags } from "./config/features.js";
-import { tenantManager } from "./multi-tenant/connection-manager.js";
+import { tenantManager, registerTenantManagerShutdownHandlers } from "./multi-tenant/connection-manager.js";
 import { tenantService } from "./application/tenant-service.js";
 import { SingleTenantManager } from "./multi-tenant/single-tenant-manager.js";
 import { SubTenantManager } from "./multi-tenant/sub-tenant-manager.js";
@@ -626,6 +626,7 @@ const startServer = async () => {
       }
     });
 
+    registerTenantManagerShutdownHandlers(tenantManager);
     await app.listen({ host: "0.0.0.0", port: env.PORT });
     app.log.info(`Auth service running on port ${env.PORT}`);
     console.log(`✅ Admin UI available at http://0.0.0.0:${env.PORT}`);
