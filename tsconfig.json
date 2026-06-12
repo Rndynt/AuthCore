@@ -1,6 +1,18 @@
 {
-  "include": ["client/src/**/*", "shared/**/*", "server/**/*", "src", "netlify/functions", "prisma"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
+  "include": [
+    "client/src/**/*",
+    "shared/**/*",
+    "server/**/*",
+    "src",
+    "netlify/functions",
+    "prisma"
+  ],
+  "exclude": [
+    "node_modules",
+    "build",
+    "dist",
+    "**/*.test.ts"
+  ],
   "compilerOptions": {
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",
@@ -8,7 +20,12 @@
     "target": "ES2022",
     "module": "ESNext",
     "strict": true,
-    "lib": ["esnext", "dom", "dom.iterable", "ES2022"],
+    "lib": [
+      "esnext",
+      "dom",
+      "dom.iterable",
+      "ES2022"
+    ],
     "jsx": "preserve",
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -17,10 +34,17 @@
     "rootDir": ".",
     "moduleResolution": "bundler",
     "baseUrl": ".",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "paths": {
-      "@/*": ["./client/src/*"],
-      "@shared/*": ["./shared/*"]
-    }
+      "@/*": [
+        "./client/src/*"
+      ],
+      "@shared/*": [
+        "./shared/*"
+      ]
+    },
+    "ignoreDeprecations": "5.0"
   }
 }

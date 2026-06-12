@@ -3,18 +3,11 @@ import type { LogStream } from '../../core/src/ports/log-stream';
 
 export class LogStreamAdapter implements LogStream {
   addListener(listener: (event: unknown) => void): void {
-    addLogListener(listener as any);
+    addLogListener(listener as Parameters<typeof addLogListener>[0]);
   }
-
   removeListener(listener: (event: unknown) => void): void {
-    removeLogListener(listener as any);
+    removeLogListener(listener as Parameters<typeof removeLogListener>[0]);
   }
 }
 
-export const logStreamAdapter: LogStream & {
-  addListener: typeof addLogListener;
-  removeListener: typeof removeLogListener;
-} = {
-  addListener,
-  removeListener,
-};
+export const logStreamAdapter = new LogStreamAdapter();

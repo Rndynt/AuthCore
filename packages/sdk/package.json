@@ -1,7 +1,7 @@
 {
   "name": "@realmio/sdk",
   "version": "0.1.0",
-  "description": "Realmio JavaScript/TypeScript SDK — admin and tenant auth client",
+  "description": "Realmio JavaScript/TypeScript SDK \u2014 admin and tenant auth client",
   "type": "module",
   "main": "./src/index.js",
   "types": "./src/index.ts",
@@ -15,13 +15,21 @@
       "types": "./src/admin/index.ts"
     },
     "./tenant": {
-      "import": "./src/tenant-auth-client.js",
-      "types": "./src/tenant-auth-client.ts"
+      "import": "./src/realmio-tenant-auth-client.js",
+      "types": "./src/realmio-tenant-auth-client.ts"
     }
   },
-  "files": ["src", "README.md"],
+  "files": [
+    "src",
+    "README.md"
+  ],
   "license": "MIT",
-  "keywords": ["realmio", "auth", "multi-tenant", "sdk"],
+  "keywords": [
+    "realmio",
+    "auth",
+    "multi-tenant",
+    "sdk"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/Rndynt/Realmio.git"

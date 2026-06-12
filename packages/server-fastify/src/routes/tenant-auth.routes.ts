@@ -1,9 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import type { AppContainer } from '../../../apps/api/src/container';
+import type { AppContainer } from '../../../../apps/api/src/container.js';
 
 /**
- * Register all /api/auth/:tenantSlug/* routes.
- * Resolves the tenant from the slug and forwards to its Better Auth instance.
+ * Register all tenant auth routes, preserving full API compatibility:
+ *
+ *   /api/auth/*                          — primary path, tenant resolved from header/subdomain
+ *   /tenant/:tenantId/api/auth/*         — explicit tenant path prefix
+ *   /legacy/auth/*                       — deprecated; forwarded with deprecation headers
  */
 export async function registerTenantAuthRoutes(
   app: FastifyInstance,
@@ -11,21 +14,46 @@ export async function registerTenantAuthRoutes(
 ): Promise<void> {
   const { tenantAuth } = container.httpHandlers;
 
-  app.all('/api/auth/:tenantSlug/*', async (request, reply) => {
-    const slug = (request.params as any).tenantSlug as string;
+  // ---- Primary: /api/auth/* ------------------------------------------------
+  // Tenant resolved from X-Tenant-Id header, subdomain, or path.
+  app.all('/api/auth/*', async (request, reply) => {
     const webRequest = fastifyToWebRequest(request);
-    const response = await tenantAuth.handle(slug, webRequest);
+    const response = await tenantAuth.handle(webRequest);
     await webResponseToFastify(response, reply);
   });
 
-  // Also handle /api/auth/:tenantSlug (without trailing wildcard)
-  app.all('/api/auth/:tenantSlug', async (request, reply) => {
-    const slug = (request.params as any).tenantSlug as string;
+  // ---- Explicit tenant prefix: /tenant/:tenantId/api/auth/* ----------------
+  app.all('/tenant/:tenantId/api/auth/*', async (request, reply) => {
+    const tenantId = (request.params as any).tenantId as string;
     const webRequest = fastifyToWebRequest(request);
-    const response = await tenantAuth.handle(slug, webRequest);
+    const response = await tenantAuth.handle(webRequest, {
+      pathTenantId: tenantId,
+      stripTenantPrefix: true,
+    });
     await webResponseToFastify(response, reply);
   });
+
+  // ---- Legacy: /legacy/auth/* (deprecated) ---------------------------------
+  app.all('/legacy/auth/*', async (request, reply) => {
+    const webRequest = fastifyToWebRequest(request);
+    const response = await tenantAuth.handle(webRequest);
+    // Attach deprecation header without mutating the original Response
+    const body = await response.text();
+    reply
+      .code(response.status)
+      .header('Deprecation', 'true')
+      .header('Sunset', 'Sat, 01 Jan 2026 00:00:00 GMT')
+      .header('Link', '</api/auth>; rel="successor-version"');
+    response.headers.forEach((value: string, key: string) => {
+      if (key.toLowerCase() !== 'content-length') reply.header(key, value);
+    });
+    await reply.send(body || null);
+  });
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function fastifyToWebRequest(request: any): Request {
   const url = `${request.protocol}://${request.hostname}${request.url}`;
@@ -34,13 +62,15 @@ function fastifyToWebRequest(request: any): Request {
   return new Request(url, {
     method: request.method,
     headers,
-    body: hasBody ? JSON.stringify(request.body) : undefined,
+    body: hasBody ? (request.rawBody ?? JSON.stringify(request.body)) : undefined,
   });
 }
 
 async function webResponseToFastify(response: Response, reply: any): Promise<void> {
   reply.code(response.status);
-  response.headers.forEach((value, key) => reply.header(key, value));
+  response.headers.forEach((value: string, key: string) => {
+    if (key.toLowerCase() !== 'content-length') reply.header(key, value);
+  });
   const body = await response.text();
   await reply.send(body || null);
 }

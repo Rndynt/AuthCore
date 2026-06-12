@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import type { AppContainer } from '../../../apps/api/src/container';
+import type { AppContainer } from '../../../../apps/api/src/container.js';
 
 /**
  * Register all /admin/* routes.
- * Delegates to AdminApiHandler for request routing and auth checks.
+ * Supports both /admin/api and /admin/api/* (explicit + wildcard).
  */
 export async function registerAdminRoutes(
   app: FastifyInstance,
@@ -11,14 +11,23 @@ export async function registerAdminRoutes(
 ): Promise<void> {
   const { handleAdminApiRequest, handleAdminLogStream } = container.httpHandlers.adminApi;
 
-  // All Better Auth admin routes (login, session, etc.)
+  // Better Auth admin routes (/admin/auth/*)
   app.all('/admin/auth/*', async (request, reply) => {
     const webRequest = fastifyToWebRequest(request);
     const response = await container.authProviders.admin.handler(webRequest);
     await webResponseToFastify(response, reply);
   });
 
-  // Admin API routes
+  // Admin API — explicit root (no wildcard suffix)
+  app.all('/admin/api', async (request, reply) => {
+    const webRequest = fastifyToWebRequest(request);
+    const ip = getClientIp(request);
+    const response = await handleAdminApiRequest(webRequest, { ip });
+    if (!response) return reply.code(404).send({ error: 'Not Found' });
+    await webResponseToFastify(response, reply);
+  });
+
+  // Admin API — all sub-paths
   app.all('/admin/api/*', async (request, reply) => {
     const webRequest = fastifyToWebRequest(request);
     const ip = getClientIp(request);
@@ -38,7 +47,7 @@ export async function registerAdminRoutes(
 }
 
 // ---------------------------------------------------------------------------
-// Helpers — Fastify ↔ Web Fetch API bridging
+// Helpers
 // ---------------------------------------------------------------------------
 
 function fastifyToWebRequest(request: any): Request {
@@ -48,13 +57,15 @@ function fastifyToWebRequest(request: any): Request {
   return new Request(url, {
     method: request.method,
     headers,
-    body: hasBody ? JSON.stringify(request.body) : undefined,
+    body: hasBody ? (request.rawBody ?? JSON.stringify(request.body)) : undefined,
   });
 }
 
 async function webResponseToFastify(response: Response, reply: any): Promise<void> {
   reply.code(response.status);
-  response.headers.forEach((value, key) => reply.header(key, value));
+  response.headers.forEach((value, key) => {
+    if (key.toLowerCase() !== 'content-length') reply.header(key, value);
+  });
   const body = await response.text();
   await reply.send(body || null);
 }

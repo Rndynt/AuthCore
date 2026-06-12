@@ -270,7 +270,7 @@ export class TenantService {
 
         const [memberships, sessionCounts] = await Promise.all([
           Promise.all(
-            users.map(user =>
+            users.map((user: any) =>
               client.organizationMember.findMany({
                 where: { userId: user.id },
                 select: {
@@ -286,7 +286,7 @@ export class TenantService {
             )
           ),
           Promise.all(
-            users.map(user =>
+            users.map((user: any) =>
               client.session.count({
                 where: {
                   userId: user.id,
@@ -297,7 +297,7 @@ export class TenantService {
           )
         ]);
 
-        users.forEach((user, index) => {
+        users.forEach((user: any, index: number) => {
           if (summaries.length >= limit) {
             return;
           }
@@ -316,7 +316,7 @@ export class TenantService {
               updatedAt: user.updatedAt
             },
             sessionCount: sessionCounts[index] ?? 0,
-            organizations: memberships[index]?.map(member => ({
+            organizations: memberships[index]?.map((member: any) => ({
               id: member.organization.id,
               name: member.organization.name,
               role: member.role

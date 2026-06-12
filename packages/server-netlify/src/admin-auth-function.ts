@@ -9,7 +9,7 @@
 import type { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { netlifyEventToWebRequest } from './netlify-request-mapper.js';
 import { webResponseToNetlify } from './netlify-response-mapper.js';
-import type { AppContainer } from '../../apps/api/src/container';
+import type { AppContainer } from '../../../apps/api/src/container.js';
 
 export function createAdminAuthFunction(container: AppContainer): Handler {
   return async (event: HandlerEvent, _context: HandlerContext) => {

@@ -1,10 +1,3 @@
-/**
- * RealmioAdminClient
- *
- * Typed HTTP client for the Realmio Admin API.
- * Attach lazy resource accessors to keep imports lightweight.
- */
-
 import { TenantsResource }         from './admin/tenants-resource';
 import { SecurityResource }         from './admin/security-resource';
 import { AuditResource }            from './admin/audit-resource';
@@ -12,19 +5,22 @@ import { MetricsResource }          from './admin/metrics-resource';
 import { UsersResource }            from './admin/users-resource';
 import { WebhooksResource }         from './admin/webhooks-resource';
 import { SupportSessionsResource }  from './admin/support-sessions-resource';
+import { RealmioApiError }          from './realmio-api-error';
 
 export interface RealmioAdminClientOptions {
-  /** Base URL of the Realmio API, e.g. https://auth.myapp.com */
   baseUrl: string;
-  /** Admin session token / cookie string (passed as Cookie header) */
   sessionToken?: string;
-  /** Extra headers included on every request */
+  credentials?: RequestCredentials;
   headers?: Record<string, string>;
+  /** Injectable fetch for testing */
+  fetch?: typeof globalThis.fetch;
 }
 
 export class RealmioAdminClient {
   private readonly baseUrl: string;
   private readonly defaultHeaders: Record<string, string>;
+  private readonly fetchImpl: typeof globalThis.fetch;
+  private readonly credentials: RequestCredentials;
 
   readonly tenants          = new TenantsResource(this);
   readonly security         = new SecurityResource(this);
@@ -35,7 +31,9 @@ export class RealmioAdminClient {
   readonly supportSessions  = new SupportSessionsResource(this);
 
   constructor(options: RealmioAdminClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/$/, '');
+    this.baseUrl     = options.baseUrl.replace(/\/$/, '');
+    this.credentials = options.credentials ?? 'include';
+    this.fetchImpl   = options.fetch ?? globalThis.fetch;
     this.defaultHeaders = {
       'Content-Type': 'application/json',
       ...(options.sessionToken ? { Cookie: options.sessionToken } : {}),
@@ -43,41 +41,26 @@ export class RealmioAdminClient {
     };
   }
 
-  // --------------------------------------------------------------------------
-  // HTTP helpers (used internally by resource classes)
-  // --------------------------------------------------------------------------
+  async get<T = unknown>(path: string): Promise<T> { return this.request<T>('GET', path); }
+  async post<T = unknown>(path: string, body: unknown): Promise<T> { return this.request<T>('POST', path, body); }
+  async put<T = unknown>(path: string, body: unknown): Promise<T> { return this.request<T>('PUT', path, body); }
+  async delete<T = unknown>(path: string): Promise<T> { return this.request<T>('DELETE', path); }
 
-  async get<T = unknown>(path: string): Promise<T> {
-    return this.request<T>('GET', path);
-  }
-
-  async post<T = unknown>(path: string, body: unknown): Promise<T> {
-    return this.request<T>('POST', path, body);
-  }
-
-  async put<T = unknown>(path: string, body: unknown): Promise<T> {
-    return this.request<T>('PUT', path, body);
-  }
-
-  async delete<T = unknown>(path: string): Promise<T> {
-    return this.request<T>('DELETE', path);
-  }
-
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const url = `${this.baseUrl}${path.startsWith('/') ? path : '/' + path}`;
-    const res = await fetch(url, {
+    const res = await this.fetchImpl(url, {
       method,
       headers: this.defaultHeaders,
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      credentials: 'include',
+      credentials: this.credentials,
     });
-
-    if (!res.ok) {
-      const errorText = await res.text().catch(() => res.statusText);
-      throw new Error(`[RealmioAdminClient] ${method} ${path} → HTTP ${res.status}: ${errorText}`);
-    }
-
     const text = await res.text();
-    return text ? (JSON.parse(text) as T) : ({} as T);
+    let parsed: unknown;
+    try { parsed = text ? JSON.parse(text) : {}; } catch { parsed = {}; }
+    if (!res.ok) {
+      const p = parsed as Record<string, unknown>;
+      throw new RealmioApiError(res.status, String(p?.error ?? 'UNKNOWN'), String(p?.message ?? res.statusText), p?.details, text);
+    }
+    return parsed as T;
   }
 }

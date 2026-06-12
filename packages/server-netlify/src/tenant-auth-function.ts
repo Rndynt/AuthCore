@@ -1,30 +1,22 @@
-/**
- * tenantAuthFunction — Netlify handler for /api/auth/:tenantSlug/* traffic.
- *
- * Thin adapter: converts Netlify event → Web Request,
- * delegates to TenantAuthHandler (which resolves the tenant and forwards
- * to its scoped Better Auth instance), converts response back.
- */
-
 import type { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { netlifyEventToWebRequest } from './netlify-request-mapper.js';
 import { webResponseToNetlify } from './netlify-response-mapper.js';
-import type { AppContainer } from '../../apps/api/src/container';
+import type { AppContainer } from '../../../apps/api/src/container.js';
 
-const TENANT_SLUG_RE = /^\/api\/auth\/([^/]+)/;
+const TENANT_PATH_RE = /^\/tenant\/([^/]+)/;
 
 export function createTenantAuthFunction(container: AppContainer): Handler {
   return async (event: HandlerEvent, _context: HandlerContext) => {
-    const match = TENANT_SLUG_RE.exec(event.path);
-    if (!match?.[1]) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Missing tenant slug in path.' }) };
-    }
-
-    const tenantSlug = match[1];
     const webRequest = netlifyEventToWebRequest(event);
 
+    // Determine whether the request has an explicit /tenant/:id prefix
+    const pathMatch = TENANT_PATH_RE.exec(event.path);
+    const options = pathMatch?.[1]
+      ? { pathTenantId: pathMatch[1], stripTenantPrefix: true }
+      : undefined;
+
     try {
-      const response = await container.httpHandlers.tenantAuth.handle(tenantSlug, webRequest);
+      const response = await container.httpHandlers.tenantAuth.handle(webRequest, options);
       return webResponseToNetlify(response);
     } catch (err) {
       console.error('[tenantAuthFunction] Unhandled error:', err);

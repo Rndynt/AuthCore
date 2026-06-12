@@ -134,7 +134,11 @@ export async function createAppContainer(config: AppConfig): Promise<AppContaine
   };
 
   // ---- IP utilities (injected so core doesn't import ipaddr.js) ----
-  const ipUtils = { isValidIpOrCidr, isIpInBlocklist, convertIpv4Mapped };
+  const ipUtils = {
+    isValidIpOrCidr,
+    isIpInBlocklist: (ip: string, list: any[]) => isIpInBlocklist(ip, list) as { blocked: boolean; matchedEntry?: any },
+    convertIpv4Mapped,
+  };
 
   // ---- Tenant lifecycle use cases ----
   const tenantDeps = { tenantRepository, tenantSchemaProvisioner: schemaProvisioner, tenantRegistry: registry, authCache, eventPublisher };

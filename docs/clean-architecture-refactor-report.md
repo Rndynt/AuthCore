@@ -189,3 +189,71 @@ Modules still in active use via adapter wrappers:
 - `src/multi-tenant/connection-manager.ts` — TenantConnectionManager
 - `src/utils/log-stream.ts`, `metrics-store.ts`, `webhook.ts` — runtime utilities
 - `src/env.ts`, `src/config/` — environment + feature flags
+
+---
+
+## Phase 3 (P03) — Compile, Test, and API Compatibility Fixes ✅
+
+### Summary of Issues Fixed
+
+| # | File | Issue | Fix |
+|---|---|---|---|
+| 1 | `packages/server-fastify/src/create-fastify-app.ts` | Wrong `../../apps/api/src/container` path | Corrected to `../../../apps/api/src/container.js` |
+| 2 | `packages/server-fastify/src/routes/*.ts` | Wrong `../../../apps/api/src/container.js` (3 levels, not 4) | Corrected to `../../../../apps/api/src/container.js` |
+| 3 | `packages/server-netlify/src/*.ts` | Wrong `../../apps/api/src/container` path | Corrected to `../../../apps/api/src/container.js` |
+| 4 | `create-fastify-app.ts` | `@fastify/formbody` missing from deps; dynamic import passed to register | Removed; using proper `import cors from '@fastify/cors'` style |
+| 5 | `tenant-auth.routes.ts` | Wrong route pattern `/api/auth/:tenantSlug/*`; wrong `handle(slug, req)` arg order | New routes: `/api/auth/*`, `/tenant/:tenantId/api/auth/*`, `/legacy/auth/*` |
+| 6 | `admin.routes.ts` | Missing `/admin/api` (no wildcard) route | Added explicit `app.all('/admin/api', ...)` alongside wildcard |
+| 7 | `architecture-boundaries.test.ts` | Imported `vitest` (not installed) | Converted to `node:test` + `node:assert/strict` |
+| 8 | `architecture-boundaries.test.ts` | Rule 4 incorrectly banned `packages/core/src` imports | Added `isMonolithSrcImport()` helper to distinguish legacy `src/` from `packages/core/src` |
+| 9 | `tests/tenant-use-cases.test.ts` | Missing `tenantSchemaProvisioner`, `createProvisioningTenant`, `markTenantActive` in fake deps | Full fake repo/provisioner updated |
+| 10 | `create-fastify-app.ts` CORS | Missing `X-Tenant-Id`, `x-api-key`, `X-Requested-With` allowed headers | Restored full header list |
+| 11 | `apps/api/src/config.ts` | `env.HOST` doesn't exist; `getFeatureFlags()` needs `AuthConfig` arg | Use `process.env.HOST`; pass `authConfig` to `getFeatureFlags` |
+| 12 | `apps/api/src/container.ts` | `isIpInBlocklist` return type doesn't match `IpBlockEntry` domain type | Cast via inline wrapper |
+| 13 | `netlify/functions/*.ts` | `handler` variable redeclared; return type `void \| Promise` mismatch | Rename to `_handler`; use promise chain without `async` |
+| 14 | `packages/adapters-runtime/src/log-stream-adapter.ts` | `addListener`/`removeListener` names wrong | Use `addLogListener`/`removeLogListener` |
+| 15 | `packages/server-netlify/src/tenant-auth-function.ts` | `handle(tenantSlug, webRequest)` — wrong arg order | Fixed to `handle(webRequest, options?)` |
+| 16 | `packages/sdk/src/index.ts` | Missing `RealmioApiError` export | Added class + export |
+| 17 | `packages/sdk/src/realmio-admin-client.ts` | No injectable `fetch`/`credentials`; no error class | Added `fetch`, `credentials` options; throws `RealmioApiError` |
+| 18 | `packages/sdk/src/realmio-tenant-auth-client.ts` | Missing `session.get()`, no injectable fetch | Fully rewrote with `session`, `user` resource objects |
+| 19 | `packages/sdk/package.json` | `./tenant` export pointed to non-existent file | Fixed to `./src/realmio-tenant-auth-client.{js,ts}` |
+| 20 | `tsconfig.json` | Missing `@types/node`; `baseUrl` deprecation warning | `npm install @types/node --save-dev`; added `ignoreDeprecations: "5.0"` |
+| 21 | `src/application/tenant-service.ts` | Pre-existing implicit `any` in callbacks | Added explicit types |
+| 22 | `health.routes.ts` + `HealthHandler` | `handle()` returned `Response`; routes compared `result.status === 'ok'` | `HealthHandler.handle(type)` now returns `HealthResult` plain object |
+
+### Command Results
+
+```
+npm run check   → 0 errors ✅
+npm test        → 24/24 pass (0 fail) ✅
+npm run build   → packages + api + admin-ui all exit 0 ✅
+```
+
+### Route Compatibility Confirmation
+
+| Route | Status |
+|---|---|
+| `GET /health`, `/healthz`, `/ready`, `/api/health` | ✅ |
+| `ALL /admin/auth/*` | ✅ |
+| `ALL /admin/api` | ✅ (explicit) |
+| `ALL /admin/api/*` | ✅ (wildcard) |
+| `GET /admin/log-stream` | ✅ SSE |
+| `ALL /api/auth/*` | ✅ primary tenant auth |
+| `ALL /tenant/:tenantId/api/auth/*` | ✅ explicit tenant prefix |
+| `ALL /legacy/auth/*` | ✅ with Deprecation + Sunset headers |
+| `ALL /dev/*` | ✅ (when devEnabled) |
+
+### CORS Headers Restored
+
+```ts
+allowedHeaders: [
+  'Content-Type', 'Authorization', 'X-Requested-With',
+  'x-api-key', 'X-Tenant-Id', 'X-Request-Id', 'X-Request-ID'
+]
+```
+
+### Remaining Limitations
+
+- `@fastify/static` is in production deps but not yet used in dev mode (no dist/public) — placeholder page served instead
+- SSE log-stream endpoint returns HTTP 501 in Netlify serverless mode (expected; SSE requires persistent connections)
+- `src/application/tenant-service.ts` and other legacy `src/` modules remain; scheduled for removal in P04+
