@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-  // No rewrites() — static export cannot use Next server rewrites.
+  // Static export: no Next server rewrites or middleware supported.
   // All API calls use same-origin paths via window.location.origin in the browser.
 };
 

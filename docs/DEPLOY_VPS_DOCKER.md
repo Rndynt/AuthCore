@@ -1,227 +1,167 @@
-# Deploy Realmio di VPS dengan Docker + Nginx
+# Deploy Realmio di VPS dengan Docker + Nginx/Coolify
 
 ## Daftar Isi
-1. [Analisis Masalah (Root Cause)](#1-analisis-masalah)
-2. [Arsitektur yang Benar](#2-arsitektur-yang-benar)
+
+1. [Arsitektur (Post-P04)](#1-arsitektur)
+2. [Route Map](#2-route-map)
 3. [Persiapan VPS](#3-persiapan-vps)
-4. [Struktur File](#4-struktur-file)
-5. [Dockerfile Backend (API)](#5-dockerfile-backend-api)
-6. [Dockerfile Admin UI](#6-dockerfile-admin-ui)
-7. [Docker Compose](#7-docker-compose)
-8. [Environment Variables](#8-environment-variables)
-9. [Nginx Configuration](#9-nginx-configuration)
-10. [SSL dengan Certbot](#10-ssl-dengan-certbot)
-11. [Langkah Deploy Step-by-Step](#11-langkah-deploy-step-by-step)
+4. [Build & Run Docker](#4-build--run-docker)
+5. [Environment Variables](#5-environment-variables)
+6. [Docker Compose](#6-docker-compose)
+7. [Nginx Reverse Proxy](#7-nginx-reverse-proxy)
+8. [SSL dengan Certbot](#8-ssl-dengan-certbot)
+9. [Deploy di Coolify](#9-deploy-di-coolify)
+10. [Langkah Deploy Step-by-Step](#10-langkah-deploy-step-by-step)
+11. [Smoke Test](#11-smoke-test)
 12. [Troubleshooting](#12-troubleshooting)
 
 ---
 
-## 1. Analisis Masalah
+## 1. Arsitektur
 
-### Kenapa login gagal di setup Anda sekarang?
-
-**Masalah utama: Nginx routing salah**
-
-Admin UI (`api-client.ts`) memanggil endpoint seperti:
-- `POST /admin/auth/sign-in/email` — untuk login
-- `GET /admin/auth/get-session` — untuk cek sesi
-- `GET /admin/api/tenants` — untuk data tenant
-- `GET /api/auth/*` — untuk auth tenant
-
-Nginx config Anda saat ini:
-```nginx
-location /api/ {
-    proxy_pass http://127.0.0.1:4000/;   # ✅ Benar untuk /api/auth/*
-}
-location /auth/ {
-    proxy_pass http://127.0.0.1:4000/;   # ❌ Tidak dipakai oleh admin UI
-}
-location / {
-    proxy_pass http://127.0.0.1:3000;    # ❌ /admin/* ikut ke sini → Next.js tidak bisa handle!
-}
+```
+Internet / Cloudflare
+       │
+       ▼
+  Nginx (443/80)
+  reverse proxy
+       │
+       ▼
+  Realmio Container
+  port 5000 (single service)
+  ┌─────────────────────────────────────────────────────┐
+  │  Fastify                                            │
+  │  ├─ /admin           → dist/public (Next.js export) │
+  │  ├─ /admin/api/*     → Admin API use cases          │
+  │  ├─ /admin/auth/*    → Better Auth admin            │
+  │  ├─ /api/auth/*      → Tenant auth                  │
+  │  ├─ /tenant/*/api/auth/* → Explicit tenant auth     │
+  │  ├─ /legacy/auth/*   → Deprecated auth compat       │
+  │  └─ /healthz         → Health check                 │
+  └─────────────────────────────────────────────────────┘
 ```
 
-Akibatnya, request `/admin/auth/sign-in/email` jatuh ke location `/` → diteruskan ke Next.js (port 3000) → Next.js tidak punya route tersebut → **API tidak ditemukan / 404**.
+**Satu container, satu port.** Fastify melayani API sekaligus file statis Admin UI.
 
-**Solusi**: Tambah `location /admin/` yang mengarah ke backend (port 4000).
+> ⚠️ Model lama (API port 4000 + Admin UI port lama (3000) + dua Dockerfile) **sudah dihapus** di P04.
+> Jangan gunakan `admin-ui/Dockerfile`, `standalone output mode`, atau `NEXT_PUBLIC_API_URL`.
 
 ---
 
-## 2. Arsitektur yang Benar
+## 2. Route Map
 
-```
-Internet (HTTPS)
-      │
-   Nginx (443/80)
-      │
-      ├── /admin/*          → Backend API (port 4000)
-      ├── /api/*            → Backend API (port 4000)
-      ├── /tenant/*         → Backend API (port 4000)
-      ├── /me               → Backend API (port 4000)
-      ├── /healthz          → Backend API (port 4000)
-      ├── /dev/*            → Backend API (port 4000)
-      ├── /legacy/*         → Backend API (port 4000)
-      └── /                 → Admin UI (port 3000)
-```
-
-Backend (port 4000) menangani semua API request.  
-Admin UI (port 3000) menangani semua halaman frontend.
+| Path | Behaviour |
+|---|---|
+| `GET /` | 302 redirect → `/admin/` |
+| `GET /admin` | Admin UI SPA (index.html) |
+| `GET /admin/*` | Static file atau SPA index fallback |
+| `GET /admin/api` | Admin API root (JSON) |
+| `GET /admin/api/*` | Admin API routes (JSON) |
+| `GET /admin/auth/*` | Better Auth admin endpoints |
+| `GET /admin/log-stream` | SSE log stream (Fastify only; tidak tersedia di Netlify) |
+| `GET /api/auth/*` | Tenant auth — tenant dari header `X-Tenant-Id` |
+| `GET /tenant/:id/api/auth/*` | Tenant auth — tenant dari path prefix |
+| `GET /legacy/auth/*` | Auth compat lama + header `Deprecation: true` |
+| `GET /healthz` | Health check JSON |
+| `GET /ready` | Readiness probe JSON |
+| `GET /api/health` | Health alias |
+| `GET /dev/*` | Dev endpoints (hanya jika `DEV_ENDPOINTS=true`) |
 
 ---
 
 ## 3. Persiapan VPS
 
 ```bash
-# Install Docker
-curl -fsSL https://get.docker.com | sh
-systemctl enable docker
-systemctl start docker
+# Ubuntu/Debian
+sudo apt update && sudo apt install -y docker.io docker-compose-plugin curl git
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER   # re-login setelah ini
 
-# Install Docker Compose
-curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
-  -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
-
-# Install Nginx
-yum install nginx -y          # CentOS/OpenCloudOS
-# atau: apt install nginx -y  # Ubuntu/Debian
-
-# Install Certbot
-yum install certbot python3-certbot-nginx -y
-# atau: apt install certbot python3-certbot-nginx -y
-
-systemctl enable nginx
-systemctl start nginx
+# Verifikasi
+docker --version
+docker compose version
 ```
 
 ---
 
-## 4. Struktur File
+## 4. Build & Run Docker
 
-Semua file Docker sudah tersedia di dalam repository:
+### Build
 
-```
-realmio-transity/
-├── Dockerfile                  # ✅ Backend API (sudah ada di repo)
-├── .dockerignore               # ✅ Sudah ada di repo
-├── docker-compose.yml          # ✅ Sudah ada di repo
-├── .env                        # ⚠️  Buat dari .env.example (tidak di-commit)
-├── admin-ui/
-│   ├── Dockerfile              # ✅ Sudah ada di repo
-│   ├── .dockerignore           # ✅ Sudah ada di repo
-│   ├── next.config.ts          # ✅ Sudah dikonfigurasi (output: standalone)
-│   ├── .env.production         # ⚠️  Buat dari .env.example (tidak di-commit)
-│   └── ...
-└── docs/
-    └── DEPLOY_VPS_DOCKER.md    # 📖 Tutorial ini
+```bash
+git clone https://github.com/Rndynt/Realmio.git
+cd Realmio
+cp .env.example .env   # edit dulu sebelum build
+
+docker build -t realmio:latest .
 ```
 
-Cukup clone repo dan buat file `.env`, tidak perlu buat Dockerfile manual.
+Build stages:
+1. **deps** — install npm deps untuk API + admin-ui
+2. **build** — `npx prisma generate` + `npm run build` (API TypeScript → dist/ + Next.js export → admin-ui/out/)
+3. **runtime** — production node_modules + `dist/` + `admin-ui/out → dist/public/`
 
----
+### Run (standalone)
 
-## 5. Dockerfile Backend (API)
-
-Ganti `Dockerfile` di root project menjadi versi yang lebih robust:
-
-```dockerfile
-# Dockerfile (Backend API)
-FROM node:20-alpine
-
-# Install dependencies untuk native modules
-RUN apk add --no-cache openssl
-
-WORKDIR /app
-
-# Copy package files
-COPY package.json package-lock.json ./
-
-# Install semua dependencies (termasuk devDependencies karena butuh tsx/prisma)
-RUN npm install
-
-# Copy source code
-COPY . .
-
-# Generate Prisma client
-RUN npx prisma generate
-
-EXPOSE 4000
-
-# Gunakan tsx untuk menjalankan TypeScript langsung (tidak perlu build step)
-CMD ["npx", "tsx", "src/server.ts"]
+```bash
+docker run -d \
+  --name realmio \
+  -p 5000:5000 \
+  --env-file .env \
+  -e NODE_ENV=production \
+  -e PORT=5000 \
+  --restart unless-stopped \
+  realmio:latest
 ```
 
-> **Catatan**: `tsx` digunakan karena project ini TypeScript dan tidak punya build output yang lengkap.  
-> Untuk production yang lebih optimal, gunakan `npm run build` + `node dist/server.js`, tapi pastikan tsconfig build benar dulu.
+### Verify
 
----
+```bash
+curl http://localhost:5000/healthz
+# {"status":"ok","mode":"...","timestamp":"..."}
 
-## 6. Dockerfile Admin UI
-
-Ganti `admin-ui/Dockerfile` menjadi:
-
-```dockerfile
-# admin-ui/Dockerfile
-FROM node:20-alpine
-
-WORKDIR /app
-
-# Copy package files
-COPY package.json package-lock.json ./
-RUN npm install
-
-# Copy semua source
-COPY . .
-
-# Build Next.js (standalone atau static)
-RUN npm run build
-
-EXPOSE 3000
-
-# Jalankan Next.js server (bukan static serve)
-# Ini lebih reliable daripada 'serve out/'
-CMD ["npm", "start"]
-```
-
-Dan pastikan `admin-ui/next.config.ts` menggunakan `standalone` output (bukan `export`), karena `export` punya keterbatasan dengan error pages:
-
-```typescript
-// admin-ui/next.config.ts
-import type { NextConfig } from 'next';
-
-const nextConfig: NextConfig = {
-  reactStrictMode: true,
-  output: 'standalone',   // Ganti dari 'export' ke 'standalone'
-};
-
-export default nextConfig;
-```
-
-Dan update `package.json` di admin-ui agar `start` menjalankan Next.js:
-
-```json
-// admin-ui/package.json (bagian scripts)
-{
-  "scripts": {
-    "dev": "next dev -p 3000",
-    "build": "next build",
-    "start": "next start -p 3000",
-    "lint": "next lint"
-  }
-}
+curl -I http://localhost:5000/admin
+# HTTP/1.1 200 OK
+# Content-Type: text/html
 ```
 
 ---
 
-## 7. Docker Compose
+## 5. Environment Variables
 
-Buat/ganti file `docker-compose.yml`:
+File: `.env` (jangan commit ke git)
+
+```env
+# Database
+DATABASE_URL=postgresql://user:pass@db:5432/realmio
+
+# Better Auth secret (min 32 chars)
+BETTER_AUTH_SECRET=your-secret-here-min-32-characters
+
+# Auth URL — harus match dengan domain publik
+BETTER_AUTH_URL=https://auth.yourdomain.com
+
+# Trusted Origins (comma-separated)
+TRUSTED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
+
+# Server
+PORT=5000
+NODE_ENV=production
+HOST=0.0.0.0
+
+# Optional: Admin UI public base URL (tidak diperlukan jika sudah same-origin)
+# NEXT_PUBLIC_API_URL=https://auth.yourdomain.com
+```
+
+> `NEXT_PUBLIC_API_URL` hanya diperlukan jika Admin UI dan API berada di domain berbeda.
+> Dalam setup single-container standar, Admin UI menggunakan `window.location.origin` secara otomatis.
+
+---
+
+## 6. Docker Compose
 
 ```yaml
-version: '3.9'
-
 services:
-  # Backend API
   api:
     build:
       context: .
@@ -229,434 +169,193 @@ services:
     container_name: realmio_api
     restart: unless-stopped
     ports:
-      - "127.0.0.1:4000:4000"    # Hanya listen di localhost (keamanan)
+      - "127.0.0.1:5000:5000"
     env_file:
       - .env
     environment:
-      - NODE_ENV=production
+      NODE_ENV: production
+      PORT: 5000
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:5000/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    networks:
+      - realmio_net
 
-  # Admin UI
-  admin-ui:
-    build:
-      context: ./admin-ui
-      dockerfile: Dockerfile
-    container_name: realmio_admin_ui
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:3000:3000"    # Hanya listen di localhost (keamanan)
-    env_file:
-      - ./admin-ui/.env.production
-    environment:
-      - NODE_ENV=production
-    depends_on:
-      api:
-        condition: service_healthy
+networks:
+  realmio_net:
+    driver: bridge
 ```
+
+**Tidak ada service `admin-ui`** — Admin UI sudah di-bundle ke dalam image sebagai file statis di `dist/public/`.
 
 ---
 
-## 8. Environment Variables
-
-### Backend: `.env`
-
-```bash
-# Server
-PORT=4000
-NODE_ENV=production
-
-# Auth (PENTING: ganti secret dengan nilai random yang aman)
-BETTER_AUTH_URL=https://transity.realmio.web.id
-BETTER_AUTH_SECRET=<ISI_DENGAN_RANDOM_STRING_MINIMAL_32_CHAR>
-
-# CORS - daftar semua domain yang boleh akses API
-TRUSTED_ORIGINS=https://transity.realmio.web.id,https://nusa-terminal.transity.web.id,https://buskita-terminal.transity.web.id
-
-# Database
-DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
-
-# Mode
-AUTH_MODE=multi
-NESTED_TENANCY_ENABLED=false
-
-# Dev endpoints (matikan di production!)
-ENABLE_DEV_ENDPOINTS=false
-```
-
-> Generate secret: `openssl rand -base64 32`
-
-### Admin UI: `admin-ui/.env.production`
-
-```bash
-# URL API backend (dipakai untuk SSR fallback)
-NEXT_PUBLIC_API_URL=https://transity.realmio.web.id
-```
-
-> **Penting**: Di browser, `api-client.ts` sudah menggunakan `window.location.origin` secara otomatis, jadi `NEXT_PUBLIC_API_URL` hanya digunakan saat SSR.
-
----
-
-## 9. Nginx Configuration
-
-Ini adalah konfigurasi **yang benar dan lengkap**. Ganti `/etc/nginx/conf.d/realmio.conf`:
+## 7. Nginx Reverse Proxy
 
 ```nginx
-# /etc/nginx/conf.d/realmio.conf
-
-# Redirect HTTP ke HTTPS
+# /etc/nginx/sites-available/realmio
 server {
     listen 80;
-    server_name transity.realmio.web.id;
+    server_name auth.yourdomain.com;
     return 301 https://$host$request_uri;
 }
 
-# HTTPS server
 server {
     listen 443 ssl;
-    server_name transity.realmio.web.id;
+    server_name auth.yourdomain.com;
 
-    # SSL (dikelola Certbot)
-    ssl_certificate /etc/letsencrypt/live/transity.realmio.web.id/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/transity.realmio.web.id/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+    ssl_certificate     /etc/letsencrypt/live/auth.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/auth.yourdomain.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
 
-    # Ukuran request body (untuk upload, dll)
-    client_max_body_size 10M;
-
-    # Timeout
-    proxy_read_timeout 60s;
-    proxy_connect_timeout 10s;
-
-    # ─────────────────────────────────────────────────────────────
-    # BACKEND API ROUTES — semua ini diteruskan ke port 4000
-    # ─────────────────────────────────────────────────────────────
-
-    # Admin API & Auth (login, session, dll)
-    location /admin/ {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Cookie $http_cookie;
-    }
-
-    # Tenant Auth API
-    location /api/ {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Cookie $http_cookie;
-    }
-
-    # Tenant routes (multi-tenant path-based)
-    location /tenant/ {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Cookie $http_cookie;
-    }
-
-    # Session endpoint
-    location /me {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Cookie $http_cookie;
-    }
-
-    # Health check
-    location /healthz {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        access_log off;
-    }
-
-    # Legacy routes
-    location /legacy/ {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Cookie $http_cookie;
-    }
-
-    # ─────────────────────────────────────────────────────────────
-    # FRONTEND — Admin UI (port 3000)
-    # ─────────────────────────────────────────────────────────────
+    # Single upstream → single Fastify container
     location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Cookie $http_cookie;
-        # Untuk Next.js Hot Reload (development, hapus di production)
-        # proxy_set_header Upgrade $http_upgrade;
-        # proxy_set_header Connection "upgrade";
+        proxy_pass         http://127.0.0.1:5000;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Forwarded-Host $host;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        # SSE log-stream support
+        proxy_buffering    off;
+        proxy_cache        off;
+        proxy_read_timeout 3600s;
     }
 }
 ```
 
+> ⚠️ Jangan split routing antara `/` ke Next.js dan `/admin` ke API — sudah tidak diperlukan.
+> Semua traffic cukup diarahkan ke satu container port 5000.
+
 ---
 
-## 10. SSL dengan Certbot
-
-Jika belum ada SSL atau perlu renew:
+## 8. SSL dengan Certbot
 
 ```bash
-# Stop nginx sementara (jika port 80 dipakai)
-systemctl stop nginx
+sudo apt install certbot python3-certbot-nginx -y
+sudo certbot --nginx -d auth.yourdomain.com
+sudo systemctl reload nginx
+```
 
-# Generate SSL
-certbot certonly --standalone -d transity.realmio.web.id
-
-# Start nginx kembali
-systemctl start nginx
-
-# Test konfigurasi
-nginx -t
-
-# Reload
-systemctl reload nginx
-
-# Auto-renew (cek apakah sudah ada di cron)
-certbot renew --dry-run
+Auto-renew:
+```bash
+sudo crontab -e
+# Tambahkan:
+0 12 * * * certbot renew --quiet && systemctl reload nginx
 ```
 
 ---
 
-## 11. Langkah Deploy Step-by-Step
+## 9. Deploy di Coolify
 
-### Langkah 1: Masuk ke direktori project
+1. **New Service** → **Docker Compose** atau **Dockerfile**
+2. Setting:
+   - **Build Type**: `Dockerfile`
+   - **Dockerfile path**: `Dockerfile`  ← root repo, bukan `admin-ui/Dockerfile`
+   - **Port**: `5000`
+   - **Health Check Path**: `/healthz`
+3. **Environment Variables**: salin dari `.env`
+4. **Tidak perlu** service terpisah untuk Admin UI
+5. **Tidak perlu** Next.js preset atau runtime — admin-ui adalah file statis
+
+---
+
+## 10. Langkah Deploy Step-by-Step
 
 ```bash
-cd ~/.openclaw/workspace/realmio-transity
+# 1. Clone & konfigurasi
+git clone https://github.com/Rndynt/Realmio.git
+cd Realmio
+cp .env.example .env
+nano .env   # isi DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL, TRUSTED_ORIGINS
+
+# 2. Jalankan database (misal PostgreSQL via Docker)
+docker run -d \
+  --name realmio_db \
+  -e POSTGRES_DB=realmio \
+  -e POSTGRES_USER=realmio \
+  -e POSTGRES_PASSWORD=secret \
+  -p 5432:5432 \
+  postgres:16-alpine
+
+# 3. Migrate database
+DATABASE_URL=postgresql://realmio:secret@localhost:5432/realmio \
+  npx prisma migrate deploy
+
+# 4. Build & jalankan via compose
+docker compose up -d --build
+
+# 5. Verifikasi
+docker compose ps
+curl http://localhost:5000/healthz
+curl -I http://localhost:5000/admin
+
+# 6. Smoke test lengkap
+BASE_URL=http://localhost:5000 bash scripts/smoke-production-runtime.sh
 ```
 
-### Langkah 2: Update environment variables
+---
+
+## 11. Smoke Test
+
+Script tersedia di `scripts/smoke-production-runtime.sh`:
 
 ```bash
-# Edit .env backend
-nano .env
-# Pastikan PORT=4000, NODE_ENV=production, ENABLE_DEV_ENDPOINTS=false
+# Test lokal
+bash scripts/smoke-production-runtime.sh
 
-# Edit .env.production admin-ui
-nano admin-ui/.env.production
-```
+# Test container yang sudah berjalan
+BASE_URL=http://localhost:5000 bash scripts/smoke-production-runtime.sh
 
-### Langkah 3: Build semua container
+# Test production
+BASE_URL=https://auth.yourdomain.com bash scripts/smoke-production-runtime.sh
 
-```bash
-# Stop container yang berjalan
-docker-compose down
-
-# Build ulang dari awal (tanpa cache)
-docker-compose build --no-cache
-
-# Jalankan
-docker-compose up -d
-```
-
-### Langkah 6: Jalankan migrasi database
-
-```bash
-# Jalankan migrasi Prisma
-docker-compose exec api npx prisma migrate deploy
-
-# Cek status
-docker-compose exec api npx prisma migrate status
-```
-
-### Langkah 7: Update Nginx config
-
-```bash
-# Backup config lama
-cp /etc/nginx/conf.d/realmio.conf /etc/nginx/conf.d/realmio.conf.backup
-
-# Buat config baru (copy-paste dari bagian Nginx di atas)
-nano /etc/nginx/conf.d/realmio.conf
-
-# Test konfigurasi
-nginx -t
-
-# Reload Nginx
-systemctl reload nginx
-```
-
-### Langkah 8: Verifikasi
-
-```bash
-# Cek container berjalan
-docker-compose ps
-
-# Cek log backend
-docker-compose logs -f api
-
-# Cek log frontend
-docker-compose logs -f admin-ui
-
-# Test health check
-curl -s https://transity.realmio.web.id/healthz | python3 -m json.tool
-
-# Test login via curl
-curl -v -X POST https://transity.realmio.web.id/admin/auth/sign-in/email \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@transity.web.id","password":"Admin123!"}'
+# Via npm
+npm run smoke:prod
 ```
 
 ---
 
 ## 12. Troubleshooting
 
-### Problem: Login tetap gagal / 401 Unauthorized
+### Container tidak mau start
 
-**Cek 1**: Apakah request sampai ke backend?
 ```bash
-# Cek log backend secara realtime, lalu coba login
-docker-compose logs -f api
+docker compose logs api
 ```
 
-Jika tidak ada log masuk, berarti Nginx tidak meneruskan ke backend. Cek lagi Nginx config.
+Cek:
+- `DATABASE_URL` benar dan database dapat dicapai
+- `BETTER_AUTH_SECRET` minimal 32 karakter
+- Port 5000 tidak terpakai: `ss -tlnp | grep 5000`
 
-**Cek 2**: Apakah CORS benar?
+### `/admin` mengembalikan 500
+
+Admin UI static files tidak ditemukan di `dist/public/index.html`.
+
 ```bash
-curl -v -X OPTIONS https://transity.realmio.web.id/admin/auth/sign-in/email \
-  -H "Origin: https://transity.realmio.web.id" \
-  -H "Access-Control-Request-Method: POST"
+docker exec realmio ls /app/dist/public/
 ```
 
-Harus ada header `Access-Control-Allow-Origin` di response.
+Solusi: rebuild image (`docker build -t realmio:latest .`).
 
-**Cek 3**: Apakah `TRUSTED_ORIGINS` sudah benar di `.env`?
+### API routes mengembalikan HTML
+
+Menandakan SPA fallback salah menangkap API routes. Periksa `shouldServeAdminUi()` di `packages/server-fastify/src/routes/static-ui.routes.ts`.
+
+### `/healthz` timeout
+
 ```bash
-docker-compose exec api printenv TRUSTED_ORIGINS
+docker exec realmio curl -v http://localhost:5000/healthz
+docker compose logs --tail=50 api
 ```
+
+Cek apakah `DATABASE_URL` dapat dicapai dari dalam container.
 
 ---
 
-### Problem: Container tidak mau start
-
-```bash
-# Lihat error saat build
-docker-compose logs api
-docker-compose logs admin-ui
-
-# Atau jalankan interactive untuk debug
-docker-compose run --rm api sh
-docker-compose run --rm admin-ui sh
-```
-
----
-
-### Problem: Database connection error
-
-```bash
-# Test koneksi dari dalam container
-docker-compose exec api node -e "
-const { Pool } = require('pg');
-const p = new Pool({ connectionString: process.env.DATABASE_URL });
-p.query('SELECT 1').then(() => console.log('DB OK')).catch(e => console.error(e));
-"
-```
-
----
-
-### Problem: `Cannot find module 'tsx'` atau build error
-
-```bash
-# Pastikan Dockerfile menggunakan npm install (bukan --production)
-# lalu rebuild
-docker-compose build --no-cache api
-```
-
----
-
-### Problem: Cookies tidak tersimpan setelah login
-
-Ini biasanya terjadi karena `BETTER_AUTH_URL` tidak sesuai dengan domain yang diakses.
-
-Pastikan `.env`:
-```bash
-BETTER_AUTH_URL=https://transity.realmio.web.id   # Harus sama dengan domain Nginx
-```
-
-Dan di Nginx, selalu teruskan header `Cookie`:
-```nginx
-proxy_set_header Cookie $http_cookie;
-```
-
----
-
-### Problem: Next.js static export gagal build (error `<Html>` outside `_document`)
-
-Ini terjadi jika `output: 'export'` digunakan dengan App Router. Solusinya:
-1. Ganti ke `output: 'standalone'` (rekomendasi), atau
-2. Hapus file `error.tsx` dari `app/`, atau
-3. Gunakan Next.js versi lama yang kompatibel
-
----
-
-## Ringkasan Perbedaan Setup Lama vs Baru
-
-| Aspek | Setup Lama (Salah) | Setup Baru (Benar) |
-|---|---|---|
-| `/admin/*` di Nginx | Ke frontend (3000) | Ke backend (4000) |
-| `/api/*` di Nginx | Strip prefix lalu ke (4000) | Teruskan ke (4000) |
-| Cookie forwarding | Tidak ada | `proxy_set_header Cookie` |
-| X-Forwarded-Proto | Tidak ada | Ada (penting untuk HTTPS) |
-| Admin UI output | `export` (static) | `standalone` (Next.js server) |
-| Admin UI CMD | `npx serve out` | `npm start` |
-
----
-
-## Quick Commands Referensi
-
-```bash
-# Lihat status semua container
-docker-compose ps
-
-# Restart semua
-docker-compose restart
-
-# Restart satu service
-docker-compose restart api
-docker-compose restart admin-ui
-
-# Lihat log realtime
-docker-compose logs -f
-docker-compose logs -f api
-
-# Masuk ke shell container
-docker-compose exec api sh
-docker-compose exec admin-ui sh
-
-# Rebuild dan deploy ulang
-docker-compose down && docker-compose build --no-cache && docker-compose up -d
-
-# Cek variabel environment di container
-docker-compose exec api printenv | grep -E "PORT|AUTH|DATABASE"
-
-# Test health
-curl https://transity.realmio.web.id/healthz
-```
+*Dokumen ini diperbarui untuk P04 Option A (static Admin UI via Fastify) — Fase P05.*

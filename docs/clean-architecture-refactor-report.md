@@ -347,3 +347,104 @@ npm run check                     → 0 errors ✅
 npm test                          → 47/47 pass (0 fail) ✅
 npm --prefix admin-ui run build   → 11/11 static pages ✅
 ```
+
+---
+
+## Phase 5 (P05) — Production Runtime Smoke & Deploy Alignment ✅
+
+### Summary of Changes
+
+#### `docker-compose.yml`
+- Replaced two-service model (`api` on port 4000 + `admin-ui` on port 3000) with a **single `api` service** on port 5000.
+- Removed `admin-ui` service entirely.
+- Removed `NEXT_INTERNAL_API_URL` environment variable.
+- Removed port `3000:3000` mapping.
+- Removed reference to `admin-ui/Dockerfile`.
+- Updated healthcheck from port 4000 → port 5000 at `/healthz`.
+- Added explicit `NODE_ENV: production` and `PORT: 5000` environment entries.
+
+#### `docs/DEPLOY_VPS_DOCKER.md`
+- Full rewrite for P04 Option A architecture (single Fastify container).
+- Removed all references to standalone Next.js output, `admin-ui/Dockerfile`, `NEXT_INTERNAL_API_URL`, separate admin-ui service on port 3000, and old port 4000 API.
+- Added complete route map table.
+- Added Coolify deployment instructions (single service, port 5000, `/healthz` health check).
+- Nginx config updated to single upstream (all traffic → port 5000).
+- Added smoke test instructions.
+
+#### `scripts/smoke-production-runtime.sh`
+- New executable shell script using only `curl` + `grep`/`sed` (no `jq` required).
+- Configurable via `BASE_URL` (default `http://localhost:5000`).
+- Checks 12 endpoints:
+  - `/healthz` — expect 200
+  - `/ready` — expect 200 or 503 with JSON
+  - `/api/health` — health alias
+  - `/` — expect 302 or 200
+  - `/admin/` — expect 200 HTML
+  - `/admin/_next/static/…` — discovered from index.html, expect 200
+  - `/admin/api` — expect JSON, NOT HTML
+  - `/admin/api/tenants` — expect JSON, NOT HTML
+  - `/admin/auth/get-session` — expect JSON, NOT HTML
+  - `/api/auth/get-session` — expect JSON
+  - `/tenant/__missing__/api/auth/get-session` — expect JSON
+  - `/legacy/auth/get-session` — expect JSON + checks Deprecation header
+- Exits with code 1 if any check fails.
+
+#### `package.json`
+- Added `smoke:prod`: `bash scripts/smoke-production-runtime.sh`
+- Added `docker:build`: `docker build -t realmio:local .`
+
+#### `tests/deployment-config.test.ts`
+- 17 invariant tests reading Dockerfile, `docker-compose.yml`, `admin-ui/next.config.ts`, and `docs/DEPLOY_VPS_DOCKER.md` as plain text.
+- Guards against regression to old two-service model.
+
+### Command Results
+
+```
+npm run check                     → 0 errors ✅
+npm test                          → 64/64 pass (0 fail) ✅
+npm run build                     → API + Admin UI 11/11 static pages ✅
+npm --prefix admin-ui run build   → 11/11 static pages ✅
+docker build -t realmio:local .   → BLOCKED: Docker daemon not available in sandbox
+```
+
+#### Docker Build Blocker
+
+The sandbox does not have a Docker daemon (`docker: not found`). Dockerfile was validated statically — all 11 structural checks pass:
+
+| Check | Status |
+|---|---|
+| Stage 1: `FROM node:20-alpine AS deps` | ✅ |
+| Dual dep install: `npm ci && npm --prefix admin-ui ci` | ✅ |
+| `npx prisma generate` | ✅ |
+| `npm run build` (API + admin-ui) | ✅ |
+| Runtime stage: `FROM node:20-alpine AS runtime` | ✅ |
+| Prod deps: `npm ci --omit=dev` | ✅ |
+| API copy: `COPY --from=build /app/dist ./dist` | ✅ |
+| UI copy: `admin-ui/out → dist/public` | ✅ |
+| Prisma binary: `node_modules/.prisma` | ✅ |
+| `EXPOSE 5000` | ✅ |
+| `CMD ["node", "dist/apps/api/src/main.js"]` | ✅ |
+
+To run Docker build and smoke test on VPS or local machine:
+
+```bash
+docker build -t realmio:local .
+docker run --rm -p 5000:5000 --env-file .env realmio:local &
+sleep 5
+BASE_URL=http://localhost:5000 npm run smoke:prod
+```
+
+#### Smoke Test Note
+
+`npm run smoke:prod` was not executed in the sandbox because it requires a live running server. The script has been validated for shell correctness (`bash -n`). On a VPS with a running container, run:
+
+```bash
+BASE_URL=http://localhost:5000 npm run smoke:prod
+```
+
+### Remaining Limitations
+
+- Docker build can only be verified in an environment with Docker daemon (VPS/local machine).
+- Smoke test requires a live server with a valid `DATABASE_URL` and all `BETTER_AUTH_*` env vars.
+- `src/` legacy modules (`src/admin/`, `src/multi-tenant/`, `src/utils/`) are still present; scheduled for removal in P06+.
+- `@fastify/static` SSE `proxy_buffering off` must be set in Nginx for the log-stream endpoint (documented in deploy guide).

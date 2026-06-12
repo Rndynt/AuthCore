@@ -1,4 +1,14 @@
-version: '3.9'
+# Realmio — single-service Docker Compose (P04+ Option A)
+#
+# Fastify serves BOTH the API and the Admin UI static export:
+#   /admin          → dist/public (Next.js static export)
+#   /admin/api/*    → Admin API (use cases)
+#   /admin/auth/*   → Better Auth admin
+#   /api/auth/*     → Tenant auth
+#   /healthz        → Health check
+#
+# The separate admin-ui service was removed in P04.
+# The admin-ui is now a static build copied into dist/public during docker build.
 
 services:
   api:
@@ -8,36 +18,20 @@ services:
     container_name: realmio_api
     restart: unless-stopped
     ports:
-      - "127.0.0.1:4000:4000"
+      - "127.0.0.1:5000:5000"
     env_file:
       - .env
-    networks:
-      - realmio_net
+    environment:
+      NODE_ENV: production
+      PORT: 5000
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:5000/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-
-  admin-ui:
-    build:
-      context: ./admin-ui
-      dockerfile: Dockerfile
-    container_name: realmio_admin_ui
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:3000:3000"
-    environment:
-      - NODE_ENV=production
-      - NEXT_INTERNAL_API_URL=http://api:4000
-    env_file:
-      - ./admin-ui/.env.production
     networks:
       - realmio_net
-    depends_on:
-      api:
-        condition: service_healthy
 
 networks:
   realmio_net:

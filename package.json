@@ -30,7 +30,9 @@
     "db:push": "drizzle-kit push",
     "build:packages": "tsc -p tsconfig.build.json --pretty false",
     "build:api": "tsc -p apps/api/tsconfig.json --pretty false",
-    "build:admin-ui": "npm --prefix admin-ui run build"
+    "build:admin-ui": "npm --prefix admin-ui run build",
+    "smoke:prod": "bash scripts/smoke-production-runtime.sh",
+    "docker:build": "docker build -t realmio:local ."
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",
