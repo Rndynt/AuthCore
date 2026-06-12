@@ -1,12 +1,12 @@
 node_modules
 dist
 .next
-admin-ui
+admin-ui/node_modules
+admin-ui/.next
+admin-ui/out
 .git
 .env
 .env.*
-*.md
-*.sh
 *.log
 cookie.txt
 .netlify
