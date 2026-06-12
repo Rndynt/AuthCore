@@ -56,7 +56,7 @@ export default function DashboardPage() {
     refetchInterval: 5000,
   });
 
-  const overview = overviewData?.overview;
+  const overview = (overviewData as any)?.overview;
   const metrics = overview?.metrics;
   const conn = metrics?.connections;
   const authCache = overview?.authCache;

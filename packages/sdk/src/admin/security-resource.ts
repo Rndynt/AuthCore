@@ -11,7 +11,7 @@ export interface SecuritySettings {
 export interface IpBlockEntry {
   ip: string;
   reason: string;
-  blockedBy: string;
+  blockedBy?: string;
   blockedAt: string;
   expiresAt: string | null;
 }

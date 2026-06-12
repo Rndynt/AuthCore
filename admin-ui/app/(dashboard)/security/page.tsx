@@ -54,7 +54,7 @@ export default function SecurityPage() {
     queryKey: ['security-settings'],
     queryFn: async () => {
       const response = await apiClient.getSecuritySettings();
-      return response.settings as SecuritySettings;
+      return (response as any).settings as SecuritySettings;
     },
   });
 
@@ -62,7 +62,7 @@ export default function SecurityPage() {
     queryKey: ['ip-blocklist'],
     queryFn: async () => {
       const response = await apiClient.getIpBlocklist();
-      return response.blocklist as IpBlockEntry[];
+      return (response as any).blocklist as IpBlockEntry[];
     },
   });
 

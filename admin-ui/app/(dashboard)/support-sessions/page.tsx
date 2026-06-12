@@ -46,7 +46,7 @@ export default function SupportSessionsPage() {
     queryKey: ['support-sessions'],
     queryFn: async () => {
       const response = await apiClient.getSupportSessions();
-      return response.sessions as SupportSession[];
+      return (response as any).sessions as SupportSession[];
     },
     refetchInterval: 30_000,
   });

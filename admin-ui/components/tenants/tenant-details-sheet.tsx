@@ -44,7 +44,7 @@ export function TenantDetailsSheet({ tenant, open, onOpenChange }: TenantDetails
     queryFn: async () => {
       if (!tenantId) return null;
       const response = await apiClient.getTenantMetrics(tenantId);
-      return response.metrics as TenantMetrics;
+      return (response as any).metrics as TenantMetrics;
     },
     enabled: open && Boolean(tenantId),
     staleTime: 30_000,

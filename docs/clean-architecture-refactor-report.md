@@ -257,3 +257,93 @@ allowedHeaders: [
 - `@fastify/static` is in production deps but not yet used in dev mode (no dist/public) — placeholder page served instead
 - SSE log-stream endpoint returns HTTP 501 in Netlify serverless mode (expected; SSE requires persistent connections)
 - `src/application/tenant-service.ts` and other legacy `src/` modules remain; scheduled for removal in P04+
+
+---
+
+## Phase 4 (P04) — Docker, Admin UI Static Export, Runtime Fixes ✅
+
+### Summary of Changes
+
+#### `admin-ui/next.config.ts`
+- Removed `output: 'standalone'` and all `rewrites()` (Next rewrites require a running Next server; incompatible with static export).
+- Added `output: 'export'` — Next.js generates a fully static site in `admin-ui/out/`.
+- Added `basePath: '/admin'` — all internal links and asset URLs are prefixed with `/admin`, matching the Fastify serving prefix.
+- Added `trailingSlash: true` — generates `page/index.html` paths for clean URL compatibility with static file servers.
+- Added `images: { unoptimized: true }` — Next Image Optimization requires a server; static export must skip it.
+
+#### `admin-ui/lib/api-client.ts`
+- Removed all `NEXT_INTERNAL_API_URL` references (was a server-side env var for rewrites).
+- `resolveApiBase()` now returns `window.location.origin` in the browser and `process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000'` at build time.
+- Fixed all SDK method call signatures: `blockIp({ ip, reason, expiresInMs })`, `audit.list(params)`, `connections.prune(force)`.
+- Fixed `createSupportSession(tenantId, userId, minutes)` → wraps `minutes` in `{ minutes }` object.
+- Added `auth.login/logout/getSession` via new `AdminAuthResource`.
+
+#### `packages/sdk/src/admin/admin-auth-resource.ts`
+- New `AdminAuthResource` with `getSession()`, `login(email, password)`, `logout()`.
+- Routes: `GET /admin/auth/get-session`, `POST /admin/auth/sign-in/email`, `POST /admin/auth/sign-out`.
+
+#### `packages/sdk/src/admin/connections-resource.ts`
+- New `ConnectionsResource` with `prune(force?)`.
+- Route: `POST /admin/api/connections/prune`.
+
+#### `packages/sdk/src/admin/security-resource.ts`
+- Made `blockedBy` optional in `CreateIpBlockInput` (resolved server-side from admin session).
+
+#### `packages/sdk/src/admin/audit-resource.ts`
+- `list()` now accepts `AuditListOptions | Record<string, unknown>` — compatible with legacy params-object callers.
+
+#### `Dockerfile`
+- `COPY --from=build /app/admin-ui/out ./admin-ui/out` → `COPY --from=build /app/admin-ui/out ./dist/public`
+- Single `CMD ["node", "dist/apps/api/src/main.js"]` — Fastify serves both API and static Admin UI.
+- Removed the second `admin-ui` `CMD` entirely (standalone mode removed).
+
+#### `packages/server-fastify/src/routes/static-ui.routes.ts`
+- Added `shouldServeAdminUi(pathname)` — exported helper that returns `true` only for Admin UI paths.
+- In **production** with missing `dist/public/index.html`: returns HTTP 500 JSON error (never silent placeholder).
+- In **development** with missing `dist/public`: returns a minimal HTML placeholder.
+- In normal operation: serves `dist/public` via `@fastify/static` at `/admin` prefix.
+- SPA fallback: `/admin/*` tries exact file → directory index → `index.html`.
+- `GET /` redirects 302 to `/admin/`.
+
+#### `tests/static-ui-route-guard.test.ts`
+- 23 test cases covering `shouldServeAdminUi()` for every route pattern.
+- All pass under `node --import tsx --test`.
+
+#### Admin UI pages — type fixes
+- `audit/page.tsx` — snake_case → camelCase (matches `AuditLogEntry` from SDK).
+- `security/page.tsx`, `support-sessions/page.tsx`, `users/page.tsx`, `tenants/page.tsx`, `(dashboard)/page.tsx` — response unwrap casts via `(response as any)`.
+- `tenant-details-sheet.tsx` — `response.metrics` cast via `(response as any)`.
+
+### Route Behaviour
+
+| Path | Behaviour |
+|---|---|
+| `GET /` | 302 redirect → `/admin/` |
+| `GET /admin` | serves `dist/public/index.html` (dashboard SPA) |
+| `GET /admin/tenants` | SPA index fallback → client router handles |
+| `GET /admin/_next/static/…` | exact static asset from `dist/public` |
+| `GET /admin/api/…` | `shouldServeAdminUi` returns false → 404 JSON |
+| `GET /admin/auth/…` | `shouldServeAdminUi` returns false → 404 JSON |
+
+### Static Export Output Structure
+
+```
+admin-ui/out/
+├── index.html          → /admin/
+├── login/index.html    → /admin/login/
+├── tenants/index.html  → /admin/tenants/
+├── security/index.html → /admin/security/
+├── audit/index.html    → /admin/audit/
+├── _next/static/…      → /admin/_next/static/…
+└── 404/index.html      → /admin/404/
+```
+
+Copied verbatim to `dist/public/` by Dockerfile. The `basePath: '/admin'` in Next config ensures all internal hrefs are already prefixed — no server-side path rewriting needed.
+
+### Command Results
+
+```
+npm run check                     → 0 errors ✅
+npm test                          → 47/47 pass (0 fail) ✅
+npm --prefix admin-ui run build   → 11/11 static pages ✅
+```

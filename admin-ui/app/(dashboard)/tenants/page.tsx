@@ -74,7 +74,7 @@ export default function TenantsPage() {
     },
   });
 
-  const tenants: AdminTenant[] = tenantsData?.tenants || [];
+  const tenants: AdminTenant[] = (tenantsData as any) || [];
 
   useEffect(() => {
     const tenantParam = searchParams.get('tenantId');

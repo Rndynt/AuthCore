@@ -14,13 +14,13 @@ import { ChevronLeft, ChevronRight, Loader2, Search, ExternalLink } from 'lucide
 
 interface AuditLog {
   id: number;
-  admin_user_id: string;
+  adminUserId: string;
   action: string;
-  target_type: string;
-  target_id: string;
+  targetType: string;
+  targetId: string;
   details: Record<string, any>;
-  ip_address: string | null;
-  created_at: string;
+  ip: string | null;
+  createdAt: string;
   tenant_id?: string | null;
   tenant_name?: string | null;
   tenant_status?: string | null;
@@ -54,7 +54,7 @@ export default function AuditLogsPage() {
         offset: page * PAGE_SIZE,
         ...normalized,
       });
-      return response as { logs: AuditLog[]; total: number };
+      return response as unknown as { logs: AuditLog[]; total: number };
     },
     placeholderData: (previousData) => previousData,
   });
@@ -179,26 +179,26 @@ export default function AuditLogsPage() {
                 {logsQuery.data?.logs.map((log) => (
                   <TableRow key={log.id}>
                     <TableCell className="text-xs text-muted-foreground">
-                      {new Date(log.created_at).toLocaleString()}
+                      {new Date(log.createdAt).toLocaleString()}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col">
-                        <span className="font-medium text-sm">{log.admin_user_id}</span>
-                        {log.ip_address && (
-                          <span className="text-xs text-muted-foreground">{log.ip_address}</span>
+                        <span className="font-medium text-sm">{log.adminUserId}</span>
+                        {log.ip && (
+                          <span className="text-xs text-muted-foreground">{log.ip}</span>
                         )}
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col text-sm">
                         <span className="font-medium">{log.action}</span>
-                        <span className="text-xs text-muted-foreground">{log.target_type}</span>
+                        <span className="text-xs text-muted-foreground">{log.targetType}</span>
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col text-sm">
-                        <span className="font-medium break-all">{log.target_id}</span>
-                        <span className="text-xs text-muted-foreground">{log.target_type}</span>
+                        <span className="font-medium break-all">{log.targetId}</span>
+                        <span className="text-xs text-muted-foreground">{log.targetType}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -218,9 +218,9 @@ export default function AuditLogsPage() {
                                 <ExternalLink className="w-3 h-3 mr-1" /> View tenant
                               </Button>
                             </Link>
-                            {log.target_type === 'user' && (
+                            {log.targetType === 'user' && (
                               (() => {
-                                const [tenantScope, userId] = log.target_id.split(':');
+                                const [tenantScope, userId] = log.targetId.split(':');
                                 const tenantForUser = tenantScope || log.tenant_id || '';
                                 const query = new URLSearchParams();
                                 if (tenantForUser) query.set('tenantId', tenantForUser);

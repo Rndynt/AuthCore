@@ -1,18 +1,19 @@
-import { TenantsResource }         from './admin/tenants-resource';
-import { SecurityResource }         from './admin/security-resource';
-import { AuditResource }            from './admin/audit-resource';
-import { MetricsResource }          from './admin/metrics-resource';
-import { UsersResource }            from './admin/users-resource';
-import { WebhooksResource }         from './admin/webhooks-resource';
-import { SupportSessionsResource }  from './admin/support-sessions-resource';
-import { RealmioApiError }          from './realmio-api-error';
+import { TenantsResource }        from './admin/tenants-resource';
+import { SecurityResource }        from './admin/security-resource';
+import { AuditResource }           from './admin/audit-resource';
+import { MetricsResource }         from './admin/metrics-resource';
+import { UsersResource }           from './admin/users-resource';
+import { WebhooksResource }        from './admin/webhooks-resource';
+import { SupportSessionsResource } from './admin/support-sessions-resource';
+import { AdminAuthResource }       from './admin/admin-auth-resource';
+import { ConnectionsResource }     from './admin/connections-resource';
+import { RealmioApiError }         from './realmio-api-error';
 
 export interface RealmioAdminClientOptions {
   baseUrl: string;
   sessionToken?: string;
   credentials?: RequestCredentials;
   headers?: Record<string, string>;
-  /** Injectable fetch for testing */
   fetch?: typeof globalThis.fetch;
 }
 
@@ -22,13 +23,15 @@ export class RealmioAdminClient {
   private readonly fetchImpl: typeof globalThis.fetch;
   private readonly credentials: RequestCredentials;
 
-  readonly tenants          = new TenantsResource(this);
-  readonly security         = new SecurityResource(this);
-  readonly audit            = new AuditResource(this);
-  readonly metrics          = new MetricsResource(this);
-  readonly users            = new UsersResource(this);
-  readonly webhooks         = new WebhooksResource(this);
-  readonly supportSessions  = new SupportSessionsResource(this);
+  readonly auth            = new AdminAuthResource(this);
+  readonly tenants         = new TenantsResource(this);
+  readonly security        = new SecurityResource(this);
+  readonly audit           = new AuditResource(this);
+  readonly metrics         = new MetricsResource(this);
+  readonly users           = new UsersResource(this);
+  readonly webhooks        = new WebhooksResource(this);
+  readonly supportSessions = new SupportSessionsResource(this);
+  readonly connections     = new ConnectionsResource(this);
 
   constructor(options: RealmioAdminClientOptions) {
     this.baseUrl     = options.baseUrl.replace(/\/$/, '');

@@ -53,7 +53,7 @@ export default function UsersPage() {
         tenantId: submitted.tenantId || undefined,
         limit: 50,
       });
-      return response.users as UserResult[];
+      return (response as any).users as UserResult[];
     },
   });
 
@@ -79,7 +79,7 @@ export default function UsersPage() {
     }) => {
       const response = await apiClient.createSupportSession(tenantId, userId, 30);
       return {
-        ...response.session,
+        ...(response as any).session ?? response,
         tenantId,
         tenantName,
         userEmail,
