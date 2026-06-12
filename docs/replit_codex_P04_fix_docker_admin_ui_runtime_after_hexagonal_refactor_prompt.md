@@ -1,4 +1,4 @@
-# Replit/Codex Prompt — P04 Fix Docker/Admin UI Runtime After Hexagonal Refactor
+# Replit/Codex Prompt — P04 Option A Only: Static Admin UI Served by Fastify
 
 Repository:
 
@@ -21,135 +21,165 @@ ba64ed4dd40b7e807b271a9e1c5f43be3671a999
 fix: restore api compatibility after hexagonal wiring
 ```
 
-P03 fixed compile/test/API compatibility regressions. However, Docker/Admin UI runtime is still inconsistent and not production-safe.
+P03 fixed compile/test/API compatibility regressions. This P04 must fix the remaining production runtime mismatch for Docker/Admin UI.
 
-## Critical Production Issue
+## Non-Negotiable Decision
 
-### Current mismatch
+Use **Option A only**:
 
-`admin-ui/next.config.ts` uses:
+```txt
+Admin UI = static export
+Fastify = serves Admin UI static files from dist/public
+Docker = single API container running node dist/apps/api/src/main.js
+```
+
+Do **not** implement Option B.
+
+Do **not** keep Next standalone/SSR runtime.
+
+Do **not** run a separate Next server.
+
+Do **not** use a process manager to run both Fastify and Next.
+
+Do **not** leave mixed static/SSR behavior.
+
+The final production model must be:
+
+```txt
+Browser
+  -> Fastify API service
+      -> /admin and /admin/*       serve Admin UI static export
+      -> /admin/api and /admin/api/* serve Admin API
+      -> /admin/auth/*            serve Admin Better Auth routes
+      -> /api/auth/*              serve tenant auth routes
+      -> /tenant/:tenantId/api/auth/* serve explicit tenant auth routes
+      -> /legacy/auth/*           serve deprecated compatibility auth route
+```
+
+## Current Production Bug
+
+`admin-ui/next.config.ts` currently uses:
 
 ```ts
 output: 'standalone'
 ```
 
-`admin-ui/package.json` builds with:
+That produces Next standalone/server assets under `.next`, not `admin-ui/out`.
 
-```json
-"build": "next build"
-```
-
-So a successful build produces Next `.next` standalone/server assets, **not** `admin-ui/out`.
-
-But the root `Dockerfile` still does:
+But the Dockerfile currently copies:
 
 ```dockerfile
 COPY --from=build /app/admin-ui/out ./admin-ui/out
 ```
 
-And `packages/server-fastify/src/routes/static-ui.routes.ts` currently looks for:
+And Fastify static route looks for:
 
 ```ts
 const distPath = join(process.cwd(), 'dist', 'public');
 ```
 
-That means:
+This is broken because:
 
-1. Docker image build can fail because `/app/admin-ui/out` does not exist.
-2. Even if Docker build is changed to avoid failure, Fastify will not serve the real Admin UI because it looks in `dist/public`.
-3. The report currently admits a placeholder is served when static build is missing, which is not acceptable for production.
+1. `admin-ui/out` is not produced by `output: 'standalone'`.
+2. Docker copy path does not match Fastify static serving path.
+3. Fastify can silently serve a placeholder instead of the real Admin UI.
 
-## Decision Required
+## Required Implementation
 
-Use **one** clear production strategy. Do not leave mixed SSR/static behavior.
+### 1. Convert Admin UI to static export
 
-Recommended for current API-service Docker runtime:
+Update:
 
-### Option A — Static export served by Fastify
+```txt
+admin-ui/next.config.ts
+```
 
-Use this if the Admin UI can run as a static SPA against same-origin API.
-
-Implement:
-
-1. Change `admin-ui/next.config.ts` to static export mode:
+Required shape:
 
 ```ts
+import type { NextConfig } from 'next';
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   output: 'export',
   trailingSlash: true,
-  images: { unoptimized: true },
+  images: {
+    unoptimized: true,
+  },
 };
+
+export default nextConfig;
 ```
 
-2. Remove Next rewrites from static export config. Static export cannot rely on server-side Next rewrites. The UI should call same-origin API through the SDK/client base URL logic.
+Rules:
 
-3. Ensure `npm --prefix admin-ui run build` produces:
+- Remove `output: 'standalone'`.
+- Remove `rewrites()` from `next.config.ts`.
+- Static export cannot rely on Next server rewrites.
+- Admin UI must call the Realmio API through same-origin URLs using the SDK/client base URL logic.
+- Do not use Next server-only runtime features in the Admin UI build path.
+
+After this change, this command must produce:
 
 ```txt
 admin-ui/out
 ```
 
-4. Update Dockerfile to copy it into the runtime path expected by Fastify:
-
-```dockerfile
-COPY --from=build /app/admin-ui/out ./dist/public
-```
-
-5. Update `packages/server-fastify/src/routes/static-ui.routes.ts` to serve:
-
-```ts
-const distPath = join(process.cwd(), 'dist', 'public');
-```
-
-This can remain if Docker copies to that path.
-
-6. Register SPA fallback so `/admin`, `/admin/*`, and dashboard routes serve `index.html`/appropriate static export files, while API paths are never intercepted.
-
-7. Remove placeholder production behavior. In production, if static files are missing, fail loudly or return a clear 500 with actionable message. Placeholder is allowed only in development.
-
-### Option B — Separate Next SSR service
-
-Use this only if Admin UI requires SSR/standalone server.
-
-Implement:
-
-1. Keep `output: 'standalone'`.
-2. Docker must copy:
+Command:
 
 ```txt
-admin-ui/.next/standalone
-admin-ui/.next/static
-admin-ui/public
+npm --prefix admin-ui run build
 ```
 
-3. Runtime must either:
-   - run two processes correctly with a process manager, or
-   - split into two Docker services: API and Admin UI.
+### 2. Ensure Admin UI API client uses same-origin API
 
-4. Remove Fastify static serving claim for Admin UI, or keep only API service.
+Verify:
 
-Do **not** choose Option B unless you fully wire the runtime process/service model. A single `CMD node dist/apps/api/src/main.js` does not run Next standalone UI.
+```txt
+admin-ui/lib/api-client.ts
+```
 
-## Required Implementation
+Expected behavior:
 
-Prefer Option A unless there is a confirmed blocker.
+- In browser, API base URL should be `window.location.origin`.
+- It should call existing same-origin paths:
 
-### 1. Fix `admin-ui/next.config.ts`
+```txt
+/admin/api/*
+/admin/auth/*
+/api/auth/*
+/tenant/*
+/legacy/*
+```
 
-Make the Admin UI build produce `admin-ui/out` via static export, or fully implement Option B.
+- Do not depend on Next `rewrites()`.
+- Do not hardcode Replit, Netlify, localhost-only, or deployment-specific URLs for production.
 
-### 2. Fix Dockerfile
+### 3. Fix Dockerfile
 
-If Option A:
+Update root `Dockerfile` so the runtime image copies Admin UI static export to the exact path Fastify serves.
+
+Required runtime copy:
 
 ```dockerfile
 COPY --from=build /app/admin-ui/out ./dist/public
 ```
 
-Remove any copy from `/app/admin-ui/out` to `./admin-ui/out` unless Fastify actually serves from that path.
+Remove the old wrong copy:
 
-### 3. Fix static serving route
+```dockerfile
+COPY --from=build /app/admin-ui/out ./admin-ui/out
+```
+
+The runtime `CMD` must remain the single Fastify API runtime:
+
+```dockerfile
+CMD ["node", "dist/apps/api/src/main.js"]
+```
+
+Do not add a Next server runtime command.
+
+### 4. Fix Fastify static Admin UI serving
 
 Update:
 
@@ -157,35 +187,111 @@ Update:
 packages/server-fastify/src/routes/static-ui.routes.ts
 ```
 
-Requirements:
+Required behavior:
 
-- Serve static files from `dist/public` in production.
-- Do not intercept:
+- Static root must be:
 
-```txt
-/api/*
-/admin/api
-/admin/api/*
-/admin/auth/*
-/admin/log-stream
-/tenant/*
-/legacy/*
-/dev/*
-/health
-/healthz
-/ready
-/api/health
+```ts
+const distPath = join(process.cwd(), 'dist', 'public');
 ```
 
-- `/admin` and `/admin/*` should serve Admin UI.
-- `/` should optionally redirect to `/admin` or serve Admin UI landing if current app expects root dashboard.
-- Missing production static files should return 500 with message like:
+- In production, if `dist/public` or `dist/public/index.html` is missing, do **not** silently serve a placeholder.
+- Return a clear `500` JSON error:
 
 ```json
-{"error":"STATIC_UI_NOT_BUILT","message":"Admin UI static files not found at dist/public. Run npm run build:admin-ui and rebuild the Docker image."}
+{
+  "error": "STATIC_UI_NOT_BUILT",
+  "message": "Admin UI static files not found at dist/public. Run npm run build:admin-ui and rebuild the Docker image."
+}
 ```
 
-### 4. Fix report
+- Placeholder HTML is allowed only in development.
+- `/` should redirect to `/admin` unless the current Admin UI requires root to render directly. Document the chosen behavior in the report.
+- `/admin` and `/admin/*` should serve the static Admin UI.
+- Static SPA fallback must not swallow API/auth/system routes.
+
+### 5. Add a static route guard helper
+
+Add/export a helper in the Fastify static route module or nearby module:
+
+```ts
+export function shouldServeAdminUi(pathname: string): boolean {
+  // implementation
+}
+```
+
+Expected results:
+
+```ts
+shouldServeAdminUi('/') === true
+shouldServeAdminUi('/admin') === true
+shouldServeAdminUi('/admin/') === true
+shouldServeAdminUi('/admin/settings') === true
+shouldServeAdminUi('/api/auth/sign-in/email') === false
+shouldServeAdminUi('/admin/api') === false
+shouldServeAdminUi('/admin/api/tenants') === false
+shouldServeAdminUi('/admin/auth/sign-in/email') === false
+shouldServeAdminUi('/admin/log-stream') === false
+shouldServeAdminUi('/tenant/acme/api/auth/get-session') === false
+shouldServeAdminUi('/legacy/auth/get-session') === false
+shouldServeAdminUi('/dev/whoami') === false
+shouldServeAdminUi('/health') === false
+shouldServeAdminUi('/healthz') === false
+shouldServeAdminUi('/ready') === false
+shouldServeAdminUi('/api/health') === false
+```
+
+Suggested implementation rule:
+
+```txt
+Serve Admin UI only for:
+- /
+- /admin
+- /admin/
+- /admin/* except /admin/api, /admin/api/*, /admin/auth/*, /admin/log-stream
+
+Do not serve Admin UI for:
+- /api/*
+- /tenant/*
+- /legacy/*
+- /dev/*
+- /health
+- /healthz
+- /ready
+```
+
+### 6. Add tests
+
+Add or update a Node test:
+
+```txt
+tests/static-ui-route-guard.test.ts
+```
+
+Use `node:test` and `node:assert/strict`, not Vitest.
+
+Test all expected `shouldServeAdminUi()` cases listed above.
+
+### 7. Verify Admin UI static export compatibility
+
+Run:
+
+```txt
+npm --prefix admin-ui run build
+```
+
+If static export fails because a page uses unsupported Next features, fix the page/config so static export passes.
+
+Examples of unsupported patterns to remove or rewrite:
+
+- server-only route handlers relied on by the Admin UI.
+- dynamic server rendering without static params.
+- server-side redirects/rewrites.
+- middleware requirement for admin pages.
+
+For Realmio Admin UI, auth should be handled client-side by checking session through `/admin/auth/get-session` via SDK/API, not by server-rendering guards.
+
+### 8. Update report
 
 Update:
 
@@ -199,58 +305,59 @@ Add section:
 P04 Docker/Admin UI Runtime Fixes
 ```
 
-Include:
+Required contents:
 
-- Which option was selected: static export or separate Next SSR service.
-- Docker runtime path.
-- Fastify static route behavior.
-- Build command results.
-- Docker build result if runnable in the environment.
-- Remaining limitations.
-
-### 5. Add a test
-
-Add a static route guard test or boundary-style test that verifies the static route exclusion list contains API/auth/tenant/legacy paths and does not swallow API endpoints.
-
-At minimum, add a unit test for a helper such as:
-
-```ts
-shouldServeAdminUi(pathname: string): boolean
+```txt
+Selected option: Option A only — static export served by Fastify
+Admin UI build output: admin-ui/out
+Docker runtime static path: dist/public
+Fastify static root: dist/public
+Root behavior: / redirects to /admin OR / serves Admin UI directly
+SPA fallback guard: API/auth/tenant/legacy/dev/health routes excluded
+Command results:
+  npm run check
+  npm test
+  npm run build
+  docker build ... result if runnable
+Remaining limitations, if any
 ```
 
-Expected:
+Remove or correct any previous report language saying:
 
-```ts
-shouldServeAdminUi('/admin') === true
-shouldServeAdminUi('/admin/settings') === true
-shouldServeAdminUi('/') === true or redirect behavior documented
-shouldServeAdminUi('/api/auth/sign-in/email') === false
-shouldServeAdminUi('/admin/api/tenants') === false
-shouldServeAdminUi('/admin/auth/sign-in/email') === false
-shouldServeAdminUi('/tenant/acme/api/auth/get-session') === false
-shouldServeAdminUi('/legacy/auth/get-session') === false
-shouldServeAdminUi('/healthz') === false
+```txt
+@fastify/static is not yet used in dev mode
+placeholder page served instead
 ```
+
+The final report must be honest and must not claim production Admin UI is fixed unless Docker/static paths actually align.
 
 ## Acceptance Criteria
 
 P04 is complete only if all are true:
 
-1. Dockerfile no longer copies a non-existent `admin-ui/out` unless `next build` actually produces it.
-2. Admin UI build output path matches Fastify static serving path.
-3. Production no longer serves placeholder Admin UI silently when static files are missing.
-4. `/admin` and `/admin/*` serve Admin UI assets/fallback correctly.
-5. API/auth/tenant/legacy/health/dev endpoints are not swallowed by SPA fallback.
-6. `npm run check` passes.
-7. `npm test` passes.
-8. `npm run build` passes.
-9. Docker build passes or the report documents the exact environment blocker and command output.
-10. `docs/clean-architecture-refactor-report.md` is updated honestly.
+1. `admin-ui/next.config.ts` uses `output: 'export'`.
+2. `admin-ui/next.config.ts` no longer uses `output: 'standalone'`.
+3. `admin-ui/next.config.ts` no longer uses Next `rewrites()`.
+4. `npm --prefix admin-ui run build` produces `admin-ui/out`.
+5. Dockerfile copies `/app/admin-ui/out` to `./dist/public`.
+6. Dockerfile does not copy `/app/admin-ui/out` to `./admin-ui/out`.
+7. Dockerfile still runs only `node dist/apps/api/src/main.js`.
+8. `packages/server-fastify/src/routes/static-ui.routes.ts` serves from `dist/public`.
+9. Production missing static files returns `STATIC_UI_NOT_BUILT`, not placeholder HTML.
+10. `/admin` and `/admin/*` serve Admin UI static fallback.
+11. `/` redirects to `/admin` or serves Admin UI directly, and this is documented.
+12. `/api/*`, `/admin/api`, `/admin/api/*`, `/admin/auth/*`, `/admin/log-stream`, `/tenant/*`, `/legacy/*`, `/dev/*`, `/health`, `/healthz`, `/ready`, `/api/health` are not swallowed by SPA fallback.
+13. `shouldServeAdminUi()` exists and is tested.
+14. `npm run check` passes.
+15. `npm test` passes.
+16. `npm run build` passes.
+17. Docker build passes or the report documents the exact blocker and output.
+18. `docs/clean-architecture-refactor-report.md` is updated honestly.
 
 ## Commit Required
 
 Commit all changes with:
 
 ```txt
-fix: align docker admin ui runtime
+fix: align docker admin ui static runtime
 ```
