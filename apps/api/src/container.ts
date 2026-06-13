@@ -42,7 +42,7 @@ import { TenantAuthHandler } from '../../../packages/http/src/tenant-auth-handle
 import { HealthHandler } from '../../../packages/http/src/health-handler.js';
 
 // ---------- IP utilities (from src/utils — no business logic, just helpers) ----------
-import { isValidIpOrCidr, isIpInBlocklist, convertIpv4Mapped } from '../../../src/utils/ip-utils.js';
+import { isValidIpOrCidr, isIpInBlocklist, convertIpv4Mapped } from '../../../packages/adapters-runtime/src/ip-utils.js';
 
 // ---------------------------------------------------------------------------
 // Container shape

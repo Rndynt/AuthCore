@@ -448,3 +448,82 @@ BASE_URL=http://localhost:5000 npm run smoke:prod
 - Smoke test requires a live server with a valid `DATABASE_URL` and all `BETTER_AUTH_*` env vars.
 - `src/` legacy modules (`src/admin/`, `src/multi-tenant/`, `src/utils/`) are still present; scheduled for removal in P06+.
 - `@fastify/static` SSE `proxy_buffering off` must be set in Nginx for the log-stream endpoint (documented in deploy guide).
+
+---
+
+## Phase 6 (P06) — Legacy src/ Decomposition ✅
+
+### Summary
+
+P06 eliminates all direct imports from the legacy `src/` monolith directories in the packages layer. Each module is now owned by a specific package; `src/` files are reduced to thin re-export shims to preserve backward compatibility for any remaining legacy callers.
+
+### New Package: `packages/config`
+
+| File | Purpose |
+|---|---|
+| `packages/config/src/env.ts` | All env-var parsing: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `PORT`, `TRUSTED_ORIGINS`, `POOL_CONFIG`, `SESSION_CONFIG`, `TENANT_CLIENT_IDLE_TTL_MS`, … |
+| `packages/config/src/auth-mode.ts` | Auth mode resolution: `database`, `edge`, `netlify` |
+| `packages/config/src/features.ts` | Feature-flag derivation from auth config |
+| `packages/config/src/index.ts` | Barrel export |
+
+### Modules Moved into `packages/adapters-runtime`
+
+| New file | Original `src/` file |
+|---|---|
+| `tenant-connection-manager-impl.ts` | `src/multi-tenant/connection-manager.ts` |
+| `types.ts` | `src/multi-tenant/types.ts` |
+| `log-stream.ts` | `src/utils/log-stream.ts` |
+| `metrics-store.ts` | `src/utils/metrics-store.ts` |
+| `webhook.ts` | `src/utils/webhook.ts` |
+| `ip-utils.ts` | `src/utils/ip-utils.ts` |
+
+All adapters (`log-stream-adapter`, `metrics-store-adapter`, `webhook-event-publisher`, `tenant-registry-adapter`, `tenant-connection-manager`, `auth-cache-adapter`) now import from these local files.
+
+### Modules Moved into `packages/adapters-better-auth`
+
+| New file | Original `src/` file |
+|---|---|
+| `admin-auth-instance.ts` | `src/admin/auth.ts` |
+| `tenant-auth-factory.ts` | `src/multi-tenant/auth-factory.ts` |
+
+All `better-auth-*-provider.ts` and `better-auth-factory.ts` files now import from these local files.
+
+### Files Deleted
+
+| Deleted | Replaced by |
+|---|---|
+| `src/admin/admin-api.ts` | `packages/http/src/admin-api-handler.ts` |
+| `src/admin/routes.ts` | `packages/server-fastify/src/routes/admin.routes.ts` |
+| `src/application/tenant-service.ts` | `packages/core/src/application/tenant/*` |
+| `create-tenant.ts` (root dev script) | — (dev utility, not needed) |
+| `tests/admin-api.snapshot.test.ts` | — (old monolith handler, superseded) |
+| `tests/__snapshots__/` | — |
+
+### src/ Shims Remaining
+
+All remaining `src/` files are **one-line re-export shims** (`export * from '../../packages/...'`). They exist solely for backward compatibility and will be deleted in P07.
+
+### New Tests Added
+
+| Test file | New rules |
+|---|---|
+| `tests/architecture-boundaries.test.ts` | +5 rules: R8 adapters-better-auth no src/admin, R9 adapters-runtime no src/utils, R10 config.ts uses packages/config, R11-12 deleted files must not exist |
+| `tests/legacy-src-imports.test.ts` | Scans 11 directories for 5 forbidden import patterns; one test per directory |
+
+### Command Results
+
+```
+npm run check   → 0 errors ✅
+npm test        → 78/78 pass (0 fail) ✅
+npm run build   → API + Admin UI 11/11 static pages ✅
+```
+
+### Test Count Growth
+
+| Phase | Tests |
+|---|---|
+| P02 | 7 |
+| P03 | 24 |
+| P04 | 47 |
+| P05 | 64 |
+| **P06** | **78** |

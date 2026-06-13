@@ -1,0 +1,8 @@
+{
+  "name": "@realmio/config",
+  "version": "0.1.0",
+  "description": "Runtime configuration for the Realmio auth service",
+  "type": "module",
+  "main": "./src/index.ts",
+  "license": "MIT"
+}

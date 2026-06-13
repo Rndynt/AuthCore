@@ -1,6 +1,6 @@
-import { env, trustedOrigins, devEnabled, POOL_CONFIG } from '../../../src/env.js';
-import { getAuthConfig } from '../../../src/config/auth-mode.js';
-import { getFeatureFlags } from '../../../src/config/features.js';
+import { env, trustedOrigins, devEnabled, POOL_CONFIG } from '../../../packages/config/src/env.js';
+import { getAuthConfig } from '../../../packages/config/src/auth-mode.js';
+import { getFeatureFlags } from '../../../packages/config/src/features.js';
 
 export interface AppConfig {
   host: string;

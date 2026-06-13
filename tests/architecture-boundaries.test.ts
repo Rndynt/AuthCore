@@ -24,90 +24,103 @@ function collectTsFiles(dir: string): string[] {
 
 function importsOf(file: string): string[] {
   const src = readFileSync(file, 'utf-8');
-  const re = /(?:import|from|require)\s*\(?['"]([^'"]+)['"]\)?/g;
+  const re = /(?:^|\s)(?:import|from|export)\s+(?:[^'"]*\s+from\s+)?['"]([^'"]+)['"]/gm;
   const out: string[] = []; let m;
   while ((m = re.exec(src)) !== null) out.push(m[1]);
   return out;
 }
 
-/** True if path references the old monolith src/ (not packages/core/src) */
-function isMonolithSrcImport(i: string): boolean {
-  // Allow packages/core/src (hexagonal core layer)
-  if (/packages\/core\/src/.test(i) || /\/core\/src\//.test(i)) return false;
-  // Ban direct references to old monolith directories
-  return /\/src\/(admin|application|multi-tenant|server)\b/.test(i);
+/**
+ * Returns true only for imports from OLD monolith src directories.
+ * Packages-layer and apps-layer paths are allowed (not legacy).
+ */
+function isLegacyMonolithImport(i: string): boolean {
+  // Allow any packages/ path (packages/core/src, packages/config/src, etc.)
+  if (/packages\//.test(i)) return false;
+  // Allow apps/api/src (composition root)
+  if (/apps\/api\/src/.test(i)) return false;
+  // Ban plain src/ monolith directories (not under packages/)
+  // Matches paths like '../../../src/admin/...' or '../../src/multi-tenant/...'
+  return /\.\.\/src\/(admin|application|multi-tenant|utils\/|server\b)/.test(i) ||
+    /\.\.\/src\/env\./.test(i) ||
+    /\.\.\/src\/config\//.test(i);
 }
 
 function rel(p: string) { return relative(ROOT, p); }
 
 // ---------------------------------------------------------------------------
-// Rule 1: packages/core — no src/ monolith or adapter imports
+// Rule 1: packages/core — no legacy or adapter imports
 // ---------------------------------------------------------------------------
-test('packages/core has no src/ monolith or adapter imports', () => {
+test('packages/core has no legacy src/ or adapter imports', () => {
   for (const file of collectTsFiles(join(ROOT, 'packages/core/src'))) {
-    const v = importsOf(file).filter(i => isMonolithSrcImport(i) || i.includes('packages/adapters-'));
-    assert.deepEqual(v, [], `${rel(file)}: ${v}`);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Rule 2: packages/http — no src/ monolith or adapter imports
-// ---------------------------------------------------------------------------
-test('packages/http has no src/ monolith or adapter imports', () => {
-  for (const file of collectTsFiles(join(ROOT, 'packages/http/src'))) {
-    const v = importsOf(file).filter(i => isMonolithSrcImport(i) || i.includes('packages/adapters-'));
-    assert.deepEqual(v, [], `${rel(file)}: ${v}`);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Rule 3: netlify/functions — no direct src/ monolith imports
-// ---------------------------------------------------------------------------
-test('netlify/functions have no direct src/ monolith imports', () => {
-  for (const file of collectTsFiles(join(ROOT, 'netlify/functions'))) {
     const v = importsOf(file).filter(
-      i => isMonolithSrcImport(i) && !i.includes('apps/api') && !i.includes('server-netlify'),
+      i => isLegacyMonolithImport(i) || /packages\/adapters-/.test(i)
     );
     assert.deepEqual(v, [], `${rel(file)}: ${v}`);
   }
 });
 
 // ---------------------------------------------------------------------------
-// Rule 4: packages/server-fastify — no src/ monolith imports
-//         (packages/core imports are OK — they are the domain layer)
+// Rule 2: packages/http — no legacy src/ or adapter imports
 // ---------------------------------------------------------------------------
-test('packages/server-fastify has no src/ monolith imports', () => {
-  for (const file of collectTsFiles(join(ROOT, 'packages/server-fastify/src'))) {
-    const v = importsOf(file).filter(i => isMonolithSrcImport(i));
+test('packages/http has no legacy src/ or adapter imports', () => {
+  for (const file of collectTsFiles(join(ROOT, 'packages/http/src'))) {
+    const v = importsOf(file).filter(
+      i => isLegacyMonolithImport(i) || /packages\/adapters-/.test(i)
+    );
     assert.deepEqual(v, [], `${rel(file)}: ${v}`);
   }
 });
 
 // ---------------------------------------------------------------------------
-// Rule 5: apps/api/src/container.ts — no direct src/ service singletons
+// Rule 3: netlify/functions — no direct legacy monolith imports
+//   (apps/api/src and packages/ are allowed)
 // ---------------------------------------------------------------------------
-test('apps/api/src/container.ts does not import src/ service singletons', () => {
+test('netlify/functions have no direct legacy monolith imports', () => {
+  for (const file of collectTsFiles(join(ROOT, 'netlify/functions'))) {
+    const v = importsOf(file).filter(i => isLegacyMonolithImport(i));
+    assert.deepEqual(v, [], `${rel(file)}: ${v}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Rule 4: packages/server-fastify — no legacy src/ imports
+// ---------------------------------------------------------------------------
+test('packages/server-fastify has no legacy src/ imports', () => {
+  for (const file of collectTsFiles(join(ROOT, 'packages/server-fastify/src'))) {
+    const v = importsOf(file).filter(i => isLegacyMonolithImport(i));
+    assert.deepEqual(v, [], `${rel(file)}: ${v}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Rule 5: apps/api/src/container.ts — no legacy src/ singletons
+// ---------------------------------------------------------------------------
+test('apps/api/src/container.ts uses packages layer only', () => {
   const v = importsOf(join(ROOT, 'apps/api/src/container.ts')).filter(
-    i => i.includes('/src/admin/admin-api') || i.includes('/src/application/tenant-service') ||
-         i.includes('/src/multi-tenant/auth-factory') || i.includes('/src/multi-tenant/connection-manager'),
-  );
-  assert.deepEqual(v, [], `container.ts: ${v}`);
+    i => /\/src\/admin\//.test(i) || /\/src\/application\//.test(i) ||
+         /\/src\/multi-tenant\//.test(i) || /[^/]\/src\/utils\//.test(i) ||
+         /[^/]\/src\/env\b/.test(i)
+  ).filter(i => !/packages\//.test(i) && !/apps\/api\/src/.test(i));
+  assert.deepEqual(v, [], `container.ts legacy: ${v}`);
 });
 
 // ---------------------------------------------------------------------------
 // Rule 6: packages/core use cases — no adapter class imports
 // ---------------------------------------------------------------------------
 test('packages/core use cases do not import adapter classes', () => {
-  const dirs = [
-    'packages/core/src/application/tenant',   'packages/core/src/application/security',
-    'packages/core/src/application/audit',     'packages/core/src/application/metrics',
-    'packages/core/src/application/support-session', 'packages/core/src/application/webhook',
-  ];
-  for (const dir of dirs) {
+  for (const dir of [
+    'packages/core/src/application/tenant',
+    'packages/core/src/application/security',
+    'packages/core/src/application/audit',
+    'packages/core/src/application/metrics',
+    'packages/core/src/application/support-session',
+    'packages/core/src/application/webhook',
+  ]) {
     for (const file of collectTsFiles(join(ROOT, dir))) {
       const v = importsOf(file).filter(
-        i => i.includes('adapters-postgres') || i.includes('adapters-better-auth') ||
-             i.includes('adapters-runtime')  || isMonolithSrcImport(i),
+        i => /adapters-postgres/.test(i) || /adapters-better-auth/.test(i) ||
+             /adapters-runtime/.test(i) || isLegacyMonolithImport(i)
       );
       assert.deepEqual(v, [], `${rel(file)}: ${v}`);
     }
@@ -115,11 +128,65 @@ test('packages/core use cases do not import adapter classes', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Rule 7: packages/sdk — no adapter or src/ monolith imports
+// Rule 7: packages/sdk — no adapter or legacy imports
 // ---------------------------------------------------------------------------
-test('packages/sdk has no adapter or src/ monolith imports', () => {
+test('packages/sdk has no adapter or legacy src/ imports', () => {
   for (const file of collectTsFiles(join(ROOT, 'packages/sdk/src'))) {
-    const v = importsOf(file).filter(i => i.includes('packages/adapters-') || isMonolithSrcImport(i));
+    const v = importsOf(file).filter(
+      i => /packages\/adapters-/.test(i) || isLegacyMonolithImport(i)
+    );
     assert.deepEqual(v, [], `${rel(file)}: ${v}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// P06 Rule 8: packages/adapters-better-auth must not import src/admin/* or src/multi-tenant/*
+// ---------------------------------------------------------------------------
+test('packages/adapters-better-auth does not import legacy src/admin or src/multi-tenant', () => {
+  for (const file of collectTsFiles(join(ROOT, 'packages/adapters-better-auth/src'))) {
+    const v = importsOf(file).filter(
+      i => /\/src\/admin\//.test(i) || /\/src\/multi-tenant\//.test(i)
+    ).filter(i => !/packages\//.test(i));
+    assert.deepEqual(v, [], `${rel(file)}: ${v}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// P06 Rule 9: packages/adapters-runtime must not import src/multi-tenant/* or src/utils/*
+// ---------------------------------------------------------------------------
+test('packages/adapters-runtime does not import legacy src/multi-tenant or src/utils', () => {
+  for (const file of collectTsFiles(join(ROOT, 'packages/adapters-runtime/src'))) {
+    const v = importsOf(file).filter(
+      i => /\/src\/multi-tenant\//.test(i) || /[^/]\/src\/utils\//.test(i)
+    ).filter(i => !/packages\//.test(i));
+    assert.deepEqual(v, [], `${rel(file)}: ${v}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// P06 Rule 10: apps/api/src/config.ts imports from packages/config, not src/
+// ---------------------------------------------------------------------------
+test('apps/api/src/config.ts imports from packages/config, not src/', () => {
+  const v = importsOf(join(ROOT, 'apps/api/src/config.ts')).filter(
+    i => /[^/]\/src\/env\b/.test(i) || /[^/]\/src\/config\//.test(i)
+  ).filter(i => !/packages\//.test(i));
+  assert.deepEqual(v, [], `config.ts legacy: ${v}`);
+});
+
+// ---------------------------------------------------------------------------
+// P06 Rule 11–12: deleted files must not exist
+// ---------------------------------------------------------------------------
+test('src/admin/admin-api.ts has been deleted', () => {
+  const exists = statSync(join(ROOT, 'src/admin/admin-api.ts'), { throwIfNoEntry: false });
+  assert.equal(exists, undefined, 'src/admin/admin-api.ts must not exist');
+});
+
+test('src/admin/routes.ts has been deleted', () => {
+  const exists = statSync(join(ROOT, 'src/admin/routes.ts'), { throwIfNoEntry: false });
+  assert.equal(exists, undefined, 'src/admin/routes.ts must not exist');
+});
+
+test('src/application/tenant-service.ts has been deleted', () => {
+  const exists = statSync(join(ROOT, 'src/application/tenant-service.ts'), { throwIfNoEntry: false });
+  assert.equal(exists, undefined, 'src/application/tenant-service.ts must not exist');
 });

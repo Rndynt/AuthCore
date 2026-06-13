@@ -1,4 +1,4 @@
-import { addLogListener, removeLogListener } from '../../../src/utils/log-stream.js';
+import { addLogListener, removeLogListener } from './log-stream.js';
 import type { LogStream } from '../../core/src/ports/log-stream';
 
 export class LogStreamAdapter implements LogStream {

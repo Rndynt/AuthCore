@@ -1,1 +1,1 @@
-export { getTenantAuth, clearTenantAuthCache, getAuthStats } from '../../../src/multi-tenant/auth-factory.js';
+export { getTenantAuth, clearTenantAuthCache, getAuthStats } from './tenant-auth-factory.js';
