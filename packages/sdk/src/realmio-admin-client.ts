@@ -36,7 +36,7 @@ export class RealmioAdminClient {
   constructor(options: RealmioAdminClientOptions) {
     this.baseUrl     = options.baseUrl.replace(/\/$/, '');
     this.credentials = options.credentials ?? 'include';
-    this.fetchImpl   = options.fetch ?? globalThis.fetch;
+    this.fetchImpl   = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.defaultHeaders = {
       'Content-Type': 'application/json',
       ...(options.sessionToken ? { Cookie: options.sessionToken } : {}),

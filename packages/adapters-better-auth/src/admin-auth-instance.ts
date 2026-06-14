@@ -27,8 +27,9 @@ const adminPrisma = new PrismaClient({
 export const adminAuth = betterAuth({
   database: prismaAdapter(adminPrisma, { provider: "postgresql" }),
 
-  // Base URL for admin auth
-  url: env.BETTER_AUTH_URL,
+  // Base URL and path for admin auth routes (/admin/auth/*)
+  baseURL: env.BETTER_AUTH_URL,
+  basePath: '/admin/auth',
   
   // Session configuration
   session: { 

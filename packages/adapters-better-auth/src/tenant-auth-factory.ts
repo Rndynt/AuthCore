@@ -100,7 +100,7 @@ async function createAuthInstance(tenantId: string): Promise<BetterAuthInstance>
     database: prismaAdapter(prisma, { provider: "postgresql" }),
 
     // Public base URL of this Auth service
-    url: env.BETTER_AUTH_URL,
+    baseURL: env.BETTER_AUTH_URL,
 
     // Session configuration with proper security settings
     session: {

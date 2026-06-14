@@ -1,164 +1,95 @@
+/**
+ * Seed admin user into authcore_system schema.
+ * Uses @noble/hashes/scrypt — same algorithm as better-auth 1.5+
+ * Format: N:16384, r:16, p:1, dkLen:64  →  "<hex-salt>:<hex-key>"
+ */
 import pkg from 'pg';
+import { scryptAsync } from '@noble/hashes/scrypt';
+
 const { Pool } = pkg;
-import { randomBytes, scrypt as scryptCallback } from 'crypto';
-import { promisify } from 'util';
 
-const scrypt = promisify(scryptCallback);
+const SCRYPT_CONFIG = { N: 16384, r: 16, p: 1, dkLen: 64 } as const;
 
-// Connect to database (Neon doesn't support search_path in pool options)
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
-// Better Auth hashes passwords using scrypt with these parameters
-// IMPORTANT: Must match Better Auth defaults (N:2^17=131072, r:8, p:1)
-const SCRYPT_SETTINGS = {
-  N: 131072,
-  r: 8,
-  p: 1,
-  maxmem: 128 * 131072 * 8 * 2
-};
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(16).toString('hex');
-  const derivedKey = await scrypt(
-    password.normalize('NFKC'),
-    Buffer.from(salt, 'hex'),
-    64,
-    SCRYPT_SETTINGS
-  ) as Buffer;
-
-  return `${salt}:${derivedKey.toString('hex')}`;
+  const saltBytes = new Uint8Array(16);
+  crypto.getRandomValues(saltBytes);
+  const salt = toHex(saltBytes);
+  const key = await scryptAsync(password.normalize('NFKC'), salt, {
+    N: SCRYPT_CONFIG.N,
+    r: SCRYPT_CONFIG.r,
+    p: SCRYPT_CONFIG.p,
+    dkLen: SCRYPT_CONFIG.dkLen,
+    maxmem: 128 * SCRYPT_CONFIG.N * SCRYPT_CONFIG.r * 2,
+  });
+  return `${salt}:${toHex(key)}`;
 }
 
 function generateId(): string {
-  return randomBytes(16).toString('hex');
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return toHex(bytes);
 }
 
-async function seedAdminUser() {
-  try {
-    console.log('🌱 Seeding admin users to authcore_system schema...\n');
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-    // Set search path for this session
+async function seedAdminUser() {
+  const EMAIL    = process.env.ADMIN_EMAIL    ?? 'admin@realmio.id';
+  const PASSWORD = process.env.ADMIN_PASSWORD ?? 'Admin2026!';
+  const NAME     = process.env.ADMIN_NAME     ?? 'Realmio Admin';
+
+  try {
+    console.log('🌱 Seeding admin user to authcore_system schema…\n');
     await pool.query(`SET search_path TO authcore_system, public`);
 
-    // Check if root already exists
-    const existing = await pool.query(`
-      SELECT id FROM users WHERE email = $1
-    `, ['root@authcore.local']);
+    const existing = await pool.query(
+      `SELECT id FROM users WHERE email = $1`, [EMAIL]
+    );
 
     const now = new Date();
-    const defaultPassword = 'AuthCore123!';
 
     if (existing.rows.length > 0) {
-      const existingUserId = existing.rows[0].id;
-      console.log('⚠️  Root admin already exists. Verifying credential hash format...');
+      const userId = existing.rows[0].id as string;
+      console.log(`⚠️  User ${EMAIL} already exists — updating password & role…`);
 
-      const accountResult = await pool.query(`
-        SELECT id, password
-        FROM accounts
-        WHERE user_id = $1
-          AND "providerId" = 'credential'
-        LIMIT 1
-      `, [existingUserId]);
+      const passwordHash = await hashPassword(PASSWORD);
+      await pool.query(
+        `UPDATE accounts SET password = $1, "updatedAt" = $2
+         WHERE user_id = $3 AND "providerId" = 'credential'`,
+        [passwordHash, now, userId]
+      );
+      await pool.query(
+        `UPDATE users SET role = 'admin', "emailVerified" = true, "updatedAt" = $1 WHERE id = $2`,
+        [now, userId]
+      );
+      console.log('✅ Password & role updated.\n');
+    } else {
+      const userId    = generateId();
+      const accountId = generateId();
+      const passwordHash = await hashPassword(PASSWORD);
 
-      if (accountResult.rows.length > 0) {
-        const account = accountResult.rows[0];
-
-        if (!account.password || account.password.startsWith('$2')) {
-          const passwordHash = await hashPassword(defaultPassword);
-
-          await pool.query(`
-            UPDATE accounts
-            SET password = $1,
-                "updatedAt" = $2
-            WHERE id = $3
-          `, [passwordHash, now, account.id]);
-
-          console.log('🔁 Updated admin account to use Better Auth scrypt hashing.');
-          console.log('\n📋 Root Admin Credentials:');
-          console.log('   Email: root@authcore.local');
-          console.log('   Password: AuthCore123!');
-          console.log('\n⚠️  IMPORTANT: Change this password after first login!\n');
-        } else {
-          console.log('✅ Admin account already uses Better Auth-compatible hashing. No changes made.');
-        }
-      } else {
-        const rootAccountId = generateId();
-        const passwordHash = await hashPassword(defaultPassword);
-
-        await pool.query(`
-          INSERT INTO accounts (
-            id, "accountId", "providerId", user_id, password, "createdAt", "updatedAt"
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [
-          rootAccountId,
-          rootAccountId,
-          'credential',
-          existingUserId,
-          passwordHash,
-          now,
-          now
-        ]);
-
-        console.log('✅ Created credential account for existing admin user.');
-        console.log('\n📋 Root Admin Credentials:');
-        console.log('   Email: root@authcore.local');
-        console.log('   Password: AuthCore123!');
-        console.log('\n⚠️  IMPORTANT: Change this password after first login!\n');
-      }
-
-      return;
+      await pool.query(
+        `INSERT INTO users (id, email, name, "emailVerified", role, banned, "createdAt", "updatedAt")
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [userId, EMAIL, NAME, true, 'admin', false, now, now]
+      );
+      await pool.query(
+        `INSERT INTO accounts (id, "accountId", "providerId", user_id, password, "createdAt", "updatedAt")
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [accountId, accountId, 'credential', userId, passwordHash, now, now]
+      );
+      console.log('✅ Admin user created.\n');
     }
 
-    const rootUserId = generateId();
-    const rootAccountId = generateId();
-
-    // Create root user in authcore_system schema
-    await pool.query(`
-      INSERT INTO users (
-        id, email, name, "emailVerified", role, banned, "createdAt", "updatedAt"
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    `, [
-      rootUserId,
-      'root@authcore.local',
-      'Root Administrator',
-      true,
-      'admin', // Role admin for Better Auth admin plugin
-      false,
-      now,
-      now
-    ]);
-
-    console.log('✅ Created root user');
-
-    const passwordHash = await hashPassword(defaultPassword);
-
-    await pool.query(`
-      INSERT INTO accounts (
-        id, "accountId", "providerId", user_id, password, "createdAt", "updatedAt"
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-    `, [
-      rootAccountId,
-      rootAccountId,
-      'credential',
-      rootUserId,
-      passwordHash,
-      now,
-      now
-    ]);
-
-    console.log('✅ Created root account with default password');
-    console.log('\n📋 Root Admin Credentials:');
-    console.log('   Email: root@authcore.local');
-    console.log('   Password: AuthCore123!');
-    console.log('\n⚠️  IMPORTANT: Change this password after first login!\n');
-
-    console.log('✅ Admin seeding completed successfully!');
-    
-  } catch (error) {
-    console.error('❌ Seeding failed:', error);
-    throw error;
+    console.log('📧 Email   :', EMAIL);
+    console.log('🔑 Password:', PASSWORD);
+    console.log('\n⚠️  Change this password after first login!\n');
+  } catch (err) {
+    console.error('❌ Seeding failed:', err);
+    throw err;
   } finally {
     await pool.end();
   }
