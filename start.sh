@@ -1,18 +1,16 @@
 #!/bin/bash
 
-echo "Starting backend API on port 5001..."
-npm run dev &
-BACKEND_PID=$!
+set -e
 
-echo "Waiting for backend to be ready..."
-for i in $(seq 1 30); do
-  if curl -sf http://localhost:5001/healthz > /dev/null 2>&1; then
-    echo "Backend is ready!"
-    break
-  fi
-  sleep 1
-done
-
-echo "Starting admin UI on port 5000..."
+echo "Building admin UI static files..."
 cd admin-ui
-exec npm run dev -- -p 5000
+npm install --legacy-peer-deps --silent
+npm run build
+cd ..
+
+echo "Copying admin UI to dist/public..."
+mkdir -p dist/public
+cp -r admin-ui/out/* dist/public/
+
+echo "Starting Realmio API + Admin UI on port 5000..."
+exec node_modules/.bin/tsx apps/api/src/main.ts

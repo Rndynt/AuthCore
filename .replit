@@ -18,10 +18,6 @@ externalPort = 3000
 localPort = 5000
 externalPort = 80
 
-[[ports]]
-localPort = 5001
-externalPort = 3001
-
 [env]
 PORT = "5000"
 
@@ -41,17 +37,18 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "bash start.sh"
 waitForPort = 5000
 
-[workflows.workflow.metadata]
-outputType = "webview"
-
 [agent]
 integrations = ["javascript_database:1.0.0"]
 expertMode = true
+stack = "BEST_EFFORT_FALLBACK"
 
 [userenv]
 
@@ -60,7 +57,5 @@ NODE_ENV = "development"
 AUTH_MODE = "multi"
 ENABLE_DEV_ENDPOINTS = "true"
 NESTED_TENANCY_ENABLED = "false"
-BETTER_AUTH_URL = "https://cb8e817a-b281-402a-b3f0-b58a37860666-00-y13e21ey708q.kirk.replit.dev"
 BETTER_AUTH_SECRET = "i4J8dk5F4cgCl1jrZp6ID65wvSq1e3eQ13l9AjWmBmI="
-TRUSTED_ORIGINS = "https://cb8e817a-b281-402a-b3f0-b58a37860666-00-y13e21ey708q.kirk.replit.dev,http://localhost:5000"
-PORT = "5001"
+PORT = "5000"

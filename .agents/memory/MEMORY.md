@@ -1,0 +1,2 @@
+- [Next.js 15 static export client component bundling](nextjs15-static-export-client-fix.md) — real client implementations end up in server chunks; use `next/dynamic` with `ssr:false` to fix prerender failures
+- [Package install quirk](package-install.md) — must use `--legacy-peer-deps` for all npm installs; better-auth is blocked by Replit firewall

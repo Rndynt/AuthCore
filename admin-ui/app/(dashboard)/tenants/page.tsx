@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,14 @@ import type { AdminTenant } from '@/components/tenants/types';
 import { useSearchParams } from 'next/navigation';
 
 export default function TenantsPage() {
+  return (
+    <Suspense>
+      <TenantsPageInner />
+    </Suspense>
+  );
+}
+
+function TenantsPageInner() {
   const queryClient = useQueryClient();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [actionError, setActionError] = useState('');
@@ -77,7 +85,7 @@ export default function TenantsPage() {
   const tenants: AdminTenant[] = (tenantsData as any) || [];
 
   useEffect(() => {
-    const tenantParam = searchParams.get('tenantId');
+    const tenantParam = searchParams?.get('tenantId');
     if (!tenantParam || tenants.length === 0) {
       return;
     }
@@ -270,3 +278,4 @@ export default function TenantsPage() {
     </div>
   );
 }
+

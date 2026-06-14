@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import './globals.css';
-import { QueryProvider } from '@/lib/query-provider';
+import { Providers } from './providers';
 
 export const metadata: Metadata = {
   title: 'Realmio Console',
@@ -15,9 +16,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="font-sans antialiased">
-        <QueryProvider>
-          {children}
-        </QueryProvider>
+        <Suspense>
+          <Providers>
+            {children}
+          </Providers>
+        </Suspense>
       </body>
     </html>
   );

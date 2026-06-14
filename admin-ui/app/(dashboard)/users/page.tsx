@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, Suspense } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,6 +30,14 @@ interface UserResult {
 }
 
 export default function UsersPage() {
+  return (
+    <Suspense>
+      <UsersPageInner />
+    </Suspense>
+  );
+}
+
+function UsersPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [filters, setFilters] = useState({ q: '', tenantId: '' });
@@ -106,8 +114,8 @@ export default function UsersPage() {
   const users = useMemo(() => searchQuery.data ?? [], [searchQuery.data]);
 
   useEffect(() => {
-    const qParam = searchParams.get('q') ?? '';
-    const tenantParam = searchParams.get('tenantId') ?? '';
+    const qParam = searchParams?.get('q') ?? '';
+    const tenantParam = searchParams?.get('tenantId') ?? '';
     const nextFilters = { q: qParam, tenantId: tenantParam };
     setFilters(nextFilters);
     setSubmitted(nextFilters);

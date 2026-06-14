@@ -273,8 +273,5 @@ CREATE TRIGGER update_applications_updated_at
 -- 8. GRANT PERMISSIONS
 -- ============================================
 
--- Grant permissions to realmio user (adjust as needed)
-GRANT ALL ON ALL TABLES IN SCHEMA public TO realmio;
-GRANT ALL ON ALL TABLES IN SCHEMA authcore_system TO realmio;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO realmio;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA authcore_system TO realmio;
+-- Permissions granted to the connecting user (postgres on Replit)
+-- No separate 'realmio' role needed in this environment
