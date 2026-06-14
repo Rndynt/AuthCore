@@ -8,7 +8,8 @@
 
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { admin, organization, apiKey, jwt, bearer, twoFactor } from "better-auth/plugins";
+import { admin, organization, jwt, bearer, twoFactor } from "better-auth/plugins";
+import { apiKey } from "@better-auth/api-key";
 import { PrismaClient } from "@prisma/client";
 import { trustedOrigins, env, SESSION_CONFIG, isProduction } from '../../config/src/env.js';
 import { tenantManager } from '../../adapters-runtime/src/tenant-connection-manager-impl.js';
