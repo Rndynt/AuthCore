@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "bash", "web"]
+modules = ["nodejs-20", "bash", "web", "postgresql-16"]
 run = "npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
@@ -59,3 +59,5 @@ ENABLE_DEV_ENDPOINTS = "true"
 NESTED_TENANCY_ENABLED = "false"
 BETTER_AUTH_SECRET = "i4J8dk5F4cgCl1jrZp6ID65wvSq1e3eQ13l9AjWmBmI="
 PORT = "5000"
+BETTER_AUTH_URL = "https://c39b5786-ba03-4118-a53f-d16781f3d326-00-2ugjdp8z98u7e.sisko.replit.dev"
+TRUSTED_ORIGINS = "https://c39b5786-ba03-4118-a53f-d16781f3d326-00-2ugjdp8z98u7e.sisko.replit.dev,http://localhost:3000,http://localhost:3001,http://localhost:5000"

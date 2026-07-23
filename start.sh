@@ -13,4 +13,4 @@ mkdir -p dist/public
 cp -r admin-ui/out/* dist/public/
 
 echo "Starting Realmio API + Admin UI on port 5000..."
-exec node_modules/.bin/tsx apps/api/src/main.ts
+exec npx tsx apps/api/src/main.ts

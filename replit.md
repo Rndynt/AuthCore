@@ -1,78 +1,73 @@
-# Realmio — Multi-Tenant Authentication Service
+# Realmio
 
-## Overview
-Realmio is a headless, multi-tenant authentication service built on **Fastify** and **Better Auth**. It provides a robust backend for managing multiple tenants (applications) with isolated PostgreSQL schemas, alongside a **Next.js admin dashboard** (Realmio Console) for centralized management.
+Headless multi-tenant authentication service built with Fastify + Better Auth + PostgreSQL.
 
-## Tech Stack
-- **Backend**: Fastify 5, Better Auth 1.x, Node.js 20+
-- **ORM**: Prisma 6 (primary), Drizzle ORM (secondary/migrations)
-- **Database**: PostgreSQL (Neon) — schema-based multi-tenancy
-- **Admin UI**: Next.js 15, Tailwind CSS, Radix UI, TanStack Query
-- **Language**: TypeScript
-- **Validation**: Zod
+## How to run
 
-## Project Structure
+The **Start application** workflow handles everything:
+1. Builds the Next.js admin UI into static files (`dist/public/`)
+2. Starts the Fastify API on **port 5000**, which also serves the admin UI
+
+Run command: `bash start.sh`
+
+## URLs
+
+| Surface | Path |
+|---------|------|
+| Admin UI | `/admin/login` |
+| Health check | `/healthz` |
+| Admin sign-up | `POST /admin/auth/sign-up/email` |
+| Admin sign-in | `POST /admin/auth/sign-in/email` |
+| Tenant auth | `POST /api/auth/sign-up/email` (requires `X-Tenant-Id` header) |
+
+## First-time admin setup
+
+After starting the server, create the first admin user and elevate their role:
+
+```bash
+# 1. Sign up
+curl -X POST http://localhost:5000/admin/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@realmio.id","password":"Admin123!","name":"Admin"}'
+
+# 2. Elevate to admin role (use DATABASE_URL from Replit secrets)
+psql "$DATABASE_URL" -c "UPDATE authcore_system.users SET role = 'admin' WHERE email = 'admin@realmio.id';"
 ```
-├── admin-ui/           # Next.js 15 Admin Dashboard (dev server on port 5000)
-├── docs/               # Documentation
-├── prisma/             # Prisma schema + migrations
-├── scripts/            # Setup and seeding scripts
-└── src/                # Backend source
-    ├── admin/          # Admin API routes & middleware
-    ├── application/    # Service layer (TenantService)
-    ├── config/         # Auth mode & feature flag config
-    ├── domain/         # Business logic (Tenant, AuditLog)
-    ├── infrastructure/ # DB repositories
-    ├── multi-tenant/   # Connection manager, middleware, schema logic
-    ├── utils/          # Rate limiting, errors, logging
-    ├── auth.ts         # Better Auth instance
-    └── server.ts       # Fastify server entry point
+
+Then open `/admin/login` and sign in.
+
+## Tech stack
+
+- **API**: Fastify 5, TypeScript, Node.js 20
+- **Auth**: Better Auth 1.x
+- **ORM**: Prisma 6
+- **Database**: PostgreSQL (Replit built-in)
+- **Admin UI**: Next.js 15 + Tailwind CSS (static export)
+
+## Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `PORT` | Server port (default: 5000) |
+| `BETTER_AUTH_SECRET` | Auth signing secret (min 24 chars) |
+| `BETTER_AUTH_URL` | Public base URL of this server |
+| `TRUSTED_ORIGINS` | Comma-separated allowed CORS origins |
+| `AUTH_MODE` | `multi` (default) or `single` |
+| `DATABASE_URL` | PostgreSQL connection string (Replit-managed) |
+| `ENABLE_DEV_ENDPOINTS` | `true` to enable `/dev/*` debug routes |
+
+## Project structure
+
+```
+apps/api/          — Fastify API entry point and config
+packages/
+  config/          — Environment parsing, auth mode config
+  server-fastify/  — Fastify app factory, routes, plugins
+  adapters-*/      — Database adapters (Prisma, Postgres)
+admin-ui/          — Next.js admin dashboard (static export)
+prisma/            — Prisma schema and migrations
 ```
 
-## Running the Project
-- **Startup script**: `bash start.sh` (starts both backend and admin UI)
-- **Backend**: `npm run dev` (runs `tsx src/server.ts`, port 5001)
-- **Admin UI**: `cd admin-ui && npm run dev -- -p 5000` (port 5000 webview)
-- **Build backend**: `npm run build` (note: tsconfig has `noEmit: true`, use `tsx` for runtime)
-- **Prisma generate**: `npm run prisma:gen`
-- **Prisma migrate**: `npm run prisma:deploy`
-- **Health check**: `GET /healthz` on port 5001
+## User preferences
 
-## Docker / Production
-- **Dockerfile** (root): Backend API, runs via `tsx src/server.ts` on port 4000
-- **admin-ui/Dockerfile**: Next.js standalone build, runs on port 3000
-- **docker-compose.yml**: Orchestrates both services, internal network `realmio_net`
-- **Admin UI env var**: `NEXT_INTERNAL_API_URL=http://api:4000` (Docker internal network)
-- See `docs/DEPLOY_VPS_DOCKER.md` for full VPS deployment guide with Nginx
-
-## Architecture on Replit
-- **Port 5000**: Admin UI (Next.js dev server) — shown as main webview
-- **Port 5001**: Backend API (Fastify server) — proxied via Next.js rewrites
-- **Admin UI rewrites**: `/api/*`, `/admin/*`, `/tenant/*`, `/dev/*`, `/me`, `/healthz` → `localhost:5001`
-- **Workflow**: "Start application" runs `bash start.sh`, waits on port 5000
-
-## Environment Variables
-| Variable | Description | Required |
-|---|---|---|
-| `DATABASE_URL` | PostgreSQL connection string | Yes (secret) |
-| `BETTER_AUTH_SECRET` | Session signing secret (min 24 chars) | Yes (secret) |
-| `BETTER_AUTH_URL` | Public URL of the auth service | shared env var |
-| `AUTH_MODE` | `single` or `multi` | shared env var |
-| `NODE_ENV` | `development` or `production` | shared env var |
-| `PORT` | Backend API port (default 5001) | shared env var |
-| `ENABLE_DEV_ENDPOINTS` | `true`/`false` | shared env var |
-| `NESTED_TENANCY_ENABLED` | `true`/`false` | shared env var |
-| `TRUSTED_ORIGINS` | Comma-separated allowed CORS origins | shared env var |
-
-## Database Setup
-- Uses Neon PostgreSQL serverless (DATABASE_URL secret)
-- Schema: `public` (tenants registry) + `authcore_system` (admin system) + per-tenant schemas
-- Migrations: Prisma (`prisma/migrations/`) — run `npm run prisma:deploy`
-- The multi-tenant migration creates `public.tenants`, `public.applications`, `authcore_system.*` tables
-
-## Key Features
-- **Multi-tenancy**: Schema isolation per tenant, LRU connection eviction
-- **Auth modes**: `single` (dedicated) or `multi` (shared)
-- **Security**: Rate limiting, IP blocking, HSTS, CSP-ready headers, 2FA (TOTP)
-- **Admin Dashboard**: Accessible at root `/` via the Next.js frontend
-- **API routes**: `/api/auth/*`, `/tenant/:id/api/auth/*`, `/admin/*`, `/dev/*`
+- Use `--legacy-peer-deps` for all npm installs
