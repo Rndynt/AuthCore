@@ -14,4 +14,9 @@ admin-ui/.next/
 admin-ui/out/
 admin-ui/node_modules/
 
+# Lockfiles contain registry-specific URLs (e.g. Replit's internal proxy)
+# Let each environment generate its own
+package-lock.json
+admin-ui/package-lock.json
+
 # Analysis reports
