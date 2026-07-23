@@ -9,6 +9,8 @@
 # Configure secrets scanning to omit legitimate environment variable names
 [build.environment]
   NODE_VERSION = "20"
+  NODE_ENV = "development"
+  NPM_FLAGS = "--legacy-peer-deps"
   SECRETS_SCAN_OMIT_KEYS = "BETTER_AUTH_SECRET,BETTER_AUTH_URL,DATABASE_URL,TRUSTED_ORIGINS,ENABLE_DEV_ENDPOINTS"
   NEXT_PUBLIC_API_URL = "/.netlify/functions/admin-auth"
 
