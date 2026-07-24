@@ -1,9 +1,9 @@
 [build]
-  # Build admin UI (Next.js SSR via @netlify/plugin-nextjs), then backend
-  # @netlify/plugin-nextjs v5 (OpenNext) manages the Next.js build output
+  # Build admin UI (Next.js static export via `output: 'export'` in next.config.ts), then backend
+  # admin-ui is a static export (not SSR), so @netlify/plugin-nextjs must be skipped
   command = "cd admin-ui && npm install --legacy-peer-deps && npm run build && cd .. && npm install --legacy-peer-deps && npm run build && npx prisma generate"
-  # publish must point to the Next.js .next directory for the plugin to work
-  publish = "admin-ui/.next"
+  # admin-ui/next.config.ts sets output: 'export', so Next.js writes static files to admin-ui/out
+  publish = "admin-ui/out"
   functions = "netlify/functions"
 
 # Configure secrets scanning to omit legitimate environment variable names
@@ -12,16 +12,18 @@
   NPM_FLAGS = "--legacy-peer-deps"
   SECRETS_SCAN_OMIT_KEYS = "BETTER_AUTH_SECRET,BETTER_AUTH_URL,DATABASE_URL,TRUSTED_ORIGINS,ENABLE_DEV_ENDPOINTS"
   NEXT_PUBLIC_API_URL = "/.netlify/functions/admin-auth"
+  # admin-ui uses static export (output: 'export'), so the Next.js runtime plugin
+  # (which expects an SSR build in .next) must be skipped entirely.
+  NETLIFY_NEXT_PLUGIN_SKIP = "true"
 
 # Netlify Functions configuration for Prisma
 [functions]
   node_bundler = "esbuild"
   included_files = ["node_modules/.prisma/**", "node_modules/@prisma/client/**"]
 
-# Next.js plugin - handles SSR/ISR for admin-ui
-# Plugin v5 (OpenNext-based) - manages routing and serverless functions automatically
-# Note: @netlify/plugin-nextjs v5 does NOT accept any inputs
-# The plugin uses publish = "admin-ui/.next" to locate the Next.js build output
+# Next.js plugin - kept installed for convenience, but explicitly skipped via
+# NETLIFY_NEXT_PLUGIN_SKIP above because admin-ui is a static export (output: 'export'),
+# not an SSR/ISR build, so the plugin's runtime is not applicable.
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
@@ -39,6 +41,20 @@
 [[redirects]]
   from = "/admin/auth/*"
   to = "/.netlify/functions/admin-auth"
+  status = 200
+
+# admin-ui is exported with basePath '/admin', so its HTML/JS reference
+# /admin/_next/... and /admin/<page> URLs. The static files themselves live
+# at the publish root (admin-ui/out -> /_next/..., /login, etc.), so rewrite
+# the basePath-prefixed URLs down to where the files actually are.
+[[redirects]]
+  from = "/admin/_next/*"
+  to = "/_next/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/admin/*"
+  to = "/:splat"
   status = 200
 
 # Tenant authentication routes → tenant-auth function
