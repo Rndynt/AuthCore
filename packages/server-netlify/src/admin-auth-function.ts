@@ -6,7 +6,7 @@
  * converts Web Response → Netlify response.
  */
 
-import type { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
+import type { Handler, HandlerEvent, HandlerContext, HandlerResponse } from '@netlify/functions';
 import { netlifyEventToWebRequest } from './netlify-request-mapper.js';
 import { webResponseToNetlify } from './netlify-response-mapper.js';
 import { withTimeout } from './with-timeout.js';
@@ -27,7 +27,7 @@ export function createAdminAuthFunction(container: AppContainer): Handler {
     // Always log the inbound request up front, before anything else can hang.
     console.log(`[adminAuthFunction] --> ${event.httpMethod} ${path} (mapped url=${webRequest.url})`);
 
-    const respond = (result: { statusCode: number; headers?: Record<string, string>; body?: string }) => {
+    const respond = (result: HandlerResponse) => {
       console.log(`[adminAuthFunction] <-- ${event.httpMethod} ${path} ${result.statusCode} (${Date.now() - start}ms)`);
       return result;
     };
