@@ -1,7 +1,7 @@
 [build]
   # Build admin UI (Next.js static export via `output: 'export'` in next.config.ts), then backend
   # admin-ui is a static export (not SSR), so @netlify/plugin-nextjs must be skipped
-  command = "cd admin-ui && npm install --legacy-peer-deps && npm run build && cd .. && npm install --legacy-peer-deps --no-workspaces && npm run build && npx prisma generate && npx prisma migrate deploy"
+  command = "cd admin-ui && npm install --legacy-peer-deps && npm run build && cd .. && npm install --legacy-peer-deps && npm run build && npx prisma generate"
   # admin-ui/next.config.ts sets output: 'export', so Next.js writes static files to admin-ui/out
   publish = "admin-ui/out"
   functions = "netlify/functions"
