@@ -28,8 +28,8 @@
     "netlify:build": "netlify build",
     "netlify:serve": "netlify serve",
     "db:push": "drizzle-kit push",
-    "build:packages": "./node_modules/.bin/tsc -p tsconfig.build.json --pretty false",
-    "build:api": "./node_modules/.bin/tsc -p apps/api/tsconfig.json --pretty false",
+    "build:packages": "npx tsc -p tsconfig.build.json --pretty false",
+    "build:api": "npx tsc -p apps/api/tsconfig.json --pretty false",
     "build:admin-ui": "npm --prefix admin-ui run build",
     "smoke:prod": "bash scripts/smoke-production-runtime.sh",
     "docker:build": "docker build -t realmio:local ."

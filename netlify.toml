@@ -1,7 +1,7 @@
 [build]
   # Build admin UI (Next.js SSR via @netlify/plugin-nextjs), then backend
   # @netlify/plugin-nextjs v5 (OpenNext) manages the Next.js build output
-  command = "cd admin-ui && npm install --legacy-peer-deps && npm run build && cd .. && npm install --legacy-peer-deps --no-workspaces && npm run build && npx prisma generate"
+  command = "cd admin-ui && npm install --legacy-peer-deps && npm run build && cd .. && npm install --legacy-peer-deps && npm run build && npx prisma generate"
   # publish must point to the Next.js .next directory for the plugin to work
   publish = "admin-ui/.next"
   functions = "netlify/functions"
@@ -9,7 +9,6 @@
 # Configure secrets scanning to omit legitimate environment variable names
 [build.environment]
   NODE_VERSION = "20"
-  NODE_ENV = "development"
   NPM_FLAGS = "--legacy-peer-deps"
   SECRETS_SCAN_OMIT_KEYS = "BETTER_AUTH_SECRET,BETTER_AUTH_URL,DATABASE_URL,TRUSTED_ORIGINS,ENABLE_DEV_ENDPOINTS"
   NEXT_PUBLIC_API_URL = "/.netlify/functions/admin-auth"
