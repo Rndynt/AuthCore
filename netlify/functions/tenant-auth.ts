@@ -2,21 +2,34 @@ import type { Handler, HandlerEvent, HandlerContext, HandlerResponse } from '@ne
 import { loadAppConfig } from '../../apps/api/src/config.js';
 import { createAppContainer } from '../../apps/api/src/container.js';
 import { createTenantAuthFunction } from '../../packages/server-netlify/src/tenant-auth-function.js';
+import { withTimeout } from '../../packages/server-netlify/src/with-timeout.js';
 
 let _handler: Handler | undefined;
 let _initError: Error | undefined;
+let _initPromise: Promise<Handler> | undefined;
+
+const INIT_TIMEOUT_MS = 8000;
 
 async function getHandler(): Promise<Handler> {
   if (_handler) return _handler;
   if (_initError) throw _initError;
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      const initStart = Date.now();
+      console.log('[tenant-auth] cold start: initializing container...');
+      const config = loadAppConfig();
+      const container = await withTimeout(createAppContainer(config), INIT_TIMEOUT_MS, 'createAppContainer');
+      await withTimeout(container.tenantRegistry.initialize(), INIT_TIMEOUT_MS, 'tenantRegistry.initialize');
+      console.log(`[tenant-auth] container ready in ${Date.now() - initStart}ms`);
+      return createTenantAuthFunction(container);
+    })();
+  }
   try {
-    const config = loadAppConfig();
-    const container = await createAppContainer(config);
-    await container.tenantRegistry.initialize();
-    _handler = createTenantAuthFunction(container);
+    _handler = await _initPromise;
     return _handler;
   } catch (err) {
     _initError = err instanceof Error ? err : new Error(String(err));
+    _initPromise = undefined;
     throw _initError;
   }
 }
