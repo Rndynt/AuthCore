@@ -4,11 +4,8 @@ import { PrismaClient } from "@prisma/client";
 import { trustedOrigins, env, SESSION_CONFIG, isProduction } from "./env.js";
 
 // Plugins
-import { admin, organization } from "better-auth/plugins";
-import { apiKey } from "better-auth/plugins";
-import { jwt } from "better-auth/plugins";
-import { bearer } from "better-auth/plugins";
-import { twoFactor } from "better-auth/plugins";
+import { admin, organization, jwt, bearer, twoFactor } from "better-auth/plugins";
+import { apiKey } from "@better-auth/api-key";
 
 const prisma = new PrismaClient({ log: ['warn','error'] });
 

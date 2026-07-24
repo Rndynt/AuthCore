@@ -14,8 +14,93 @@ import { PrismaClient } from "@prisma/client";
 import { trustedOrigins, env, SESSION_CONFIG, isProduction } from '../../config/src/env.js';
 import { tenantManager } from '../../adapters-runtime/src/tenant-connection-manager-impl.js';
 
-// Type for Better Auth instance
-type BetterAuthInstance = ReturnType<typeof betterAuth>;
+/**
+ * Builds a tenant-scoped Better Auth instance.
+ *
+ * Extracted into its own function (rather than inlined in createAuthInstance)
+ * so that BetterAuthInstance below can be derived from this exact call site.
+ * Using the bare `ReturnType<typeof betterAuth>` (no arguments) instead widens
+ * to the generic `Auth<BetterAuthOptions>` shape, which TypeScript treats as
+ * structurally incompatible with the concrete instance actually returned here
+ * (plugin-specific schema types make the two "Auth<...>" instantiations
+ * nominally distinct even though they're both valid Better Auth instances).
+ */
+function buildTenantAuthInstance(prisma: PrismaClient, tenantId: string) {
+  return betterAuth({
+    database: prismaAdapter(prisma, { provider: "postgresql" }),
+
+    // Public base URL of this Auth service
+    baseURL: env.BETTER_AUTH_URL,
+
+    // Session configuration with proper security settings
+    session: {
+      cookieCache: { enabled: false },
+      expiresIn: SESSION_CONFIG.maxAge,
+      updateAge: 86400,
+      cookieOptions: {
+        secure: SESSION_CONFIG.cookieSecure,
+        sameSite: SESSION_CONFIG.sameSite,
+        httpOnly: true,
+      }
+    },
+
+    // Cross-origin callers (frontends, admin dashboards)
+    trustedOrigins,
+
+    // Enable email/password with security options
+    emailAndPassword: {
+      enabled: true,
+      minPasswordLength: 8,
+      maxPasswordLength: 128,
+      autoSignIn: true,
+    },
+
+    // Secret for token/cookie signing
+    secret: env.BETTER_AUTH_SECRET,
+
+    // Rate limiting
+    rateLimit: {
+      enabled: isProduction,
+      window: 60,
+      max: 10,
+    },
+
+    plugins: [
+      admin(),
+      organization({
+        // Email sending function for invitations (dev/testing only)
+        sendInvitationEmail: async (data) => {
+          console.log(`[Tenant ${tenantId}] Invitation sent to:`, data.email, 'for organization:', data.organization.name);
+          console.log(`[Tenant ${tenantId}] Invitation ID:`, data.invitation.id, 'Role:', data.invitation.role);
+          // In production, implement actual email sending here
+        }
+      }),
+      apiKey({
+        defaultPrefix: `${tenantId}_ak_`,
+        enableMetadata: true,
+      }),
+      jwt({
+        jwks: {
+          keyPairConfig: {
+            alg: 'RS256',
+          }
+        }
+      }),
+      bearer(),
+      twoFactor({
+        issuer: `AuthCore-${tenantId}`,
+        otpOptions: {
+          period: 30,
+          digits: 6,
+        }
+      }),
+    ],
+  });
+}
+
+// Type for Better Auth instance — derived from the builder above so cached
+// and freshly-created instances share the exact same concrete type.
+type BetterAuthInstance = ReturnType<typeof buildTenantAuthInstance>;
 
 // Cache Better Auth instances per tenant
 const authInstances = new Map<string, BetterAuthInstance>();
@@ -96,76 +181,7 @@ async function createAuthInstance(tenantId: string): Promise<BetterAuthInstance>
   console.log(`[Auth Factory] Creating Better Auth instance for tenant: ${tenantId}`);
 
   // Create tenant-specific Better Auth instance
-  const authInstance = betterAuth({
-    database: prismaAdapter(prisma, { provider: "postgresql" }),
-
-    // Public base URL of this Auth service
-    baseURL: env.BETTER_AUTH_URL,
-
-    // Session configuration with proper security settings
-    session: {
-      cookieCache: { enabled: false },
-      expiresIn: SESSION_CONFIG.maxAge,
-      updateAge: 86400,
-      cookieOptions: {
-        secure: SESSION_CONFIG.cookieSecure,
-        sameSite: SESSION_CONFIG.sameSite,
-        httpOnly: true,
-      }
-    },
-
-    // Cross-origin callers (frontends, admin dashboards)
-    trustedOrigins,
-
-    // Enable email/password with security options
-    emailAndPassword: {
-      enabled: true,
-      minPasswordLength: 8,
-      maxPasswordLength: 128,
-      autoSignIn: true,
-    },
-
-    // Secret for token/cookie signing
-    secret: env.BETTER_AUTH_SECRET,
-
-    // Rate limiting
-    rateLimit: {
-      enabled: isProduction,
-      window: 60,
-      max: 10,
-    },
-
-    plugins: [
-      admin(),
-      organization({
-        // Email sending function for invitations (dev/testing only)
-        sendInvitationEmail: async (data) => {
-          console.log(`[Tenant ${tenantId}] Invitation sent to:`, data.email, 'for organization:', data.organization.name);
-          console.log(`[Tenant ${tenantId}] Invitation ID:`, data.invitation.id, 'Role:', data.invitation.role);
-          // In production, implement actual email sending here
-        }
-      }),
-      apiKey({
-        defaultPrefix: `${tenantId}_ak_`,
-        enableMetadata: true,
-      }),
-      jwt({
-        jwks: {
-          keyPairConfig: {
-            alg: 'RS256',
-          }
-        }
-      }),
-      bearer(),
-      twoFactor({
-        issuer: `AuthCore-${tenantId}`,
-        otpOptions: {
-          period: 30,
-          digits: 6,
-        }
-      }),
-    ],
-  });
+  const authInstance = buildTenantAuthInstance(prisma, tenantId);
 
   // Cache the instance
   authInstances.set(tenantId, authInstance);

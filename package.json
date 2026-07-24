@@ -35,13 +35,13 @@
     "docker:build": "docker build -t realmio:local ."
   },
   "dependencies": {
-    "@better-auth/api-key": "^1.6.18",
+    "@better-auth/api-key": "^1.6.25",
     "@fastify/cors": "^11.1.0",
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/static": "^8.3.0",
     "@prisma/client": "^6.16.2",
     "@types/pg": "^8.15.6",
-    "better-auth": "^1.6.18",
+    "better-auth": "^1.6.25",
     "dotenv": "^17.2.2",
     "drizzle-orm": "^0.45.2",
     "drizzle-zod": "^0.7.0",
@@ -66,5 +66,10 @@
   "workspaces": [
     "packages/*",
     "apps/*"
-  ]
+  ],
+  "overrides": {
+    "better-call": {
+      "zod": "^4.4.3"
+    }
+  }
 }
