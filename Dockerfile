@@ -1,4 +1,4 @@
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 RUN apk add --no-cache openssl curl
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -10,7 +10,7 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build && npx esbuild apps/api/src/main.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist/apps/api/src/main.js
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 RUN apk add --no-cache openssl curl dumb-init
 WORKDIR /app
 ENV NODE_ENV=production
