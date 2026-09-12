@@ -8,9 +8,15 @@
 import { loadAppConfig } from './config.js';
 import { createAppContainer } from './container.js';
 import { createFastifyApp } from '../../../packages/server-fastify/src/create-fastify-app.js';
+import { bootstrapDatabase } from './bootstrap-db.js';
 
 async function main() {
   const config = loadAppConfig();
+
+  // 0. Idempotent DB bootstrap — creates the tenant registry / Better Auth
+  // tables on a fresh database, no-ops if they already exist. See
+  // bootstrap-db.ts for details. Set SKIP_DB_BOOTSTRAP=true to disable.
+  await bootstrapDatabase(config.databaseUrl);
 
   // 1. Initialise the tenant registry (loads all active tenants into memory)
   const container = await createAppContainer(config);
