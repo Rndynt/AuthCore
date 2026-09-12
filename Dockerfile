@@ -3,12 +3,12 @@ RUN apk add --no-cache openssl curl
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY admin-ui/package.json admin-ui/package-lock.json ./admin-ui/
-RUN npm ci && npm --prefix admin-ui ci --legacy-peer-deps
+RUN npm ci --legacy-peer-deps  && npm --prefix admin-ui ci --legacy-peer-deps
 
 FROM deps AS build
 COPY . .
 RUN npx prisma generate
-RUN npm run build && npx esbuild apps/api/src/main.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist/apps/api/src/main.js
+RUN npm run build && npx esbuild apps/api/src/main.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/apps/api/src/main.js
 
 FROM node:22-alpine AS runtime
 RUN apk add --no-cache openssl curl dumb-init
