@@ -3,7 +3,7 @@ RUN apk add --no-cache openssl curl
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY admin-ui/package.json admin-ui/package-lock.json ./admin-ui/
-RUN npm ci && npm --prefix admin-ui ci
+RUN npm ci && npm --prefix admin-ui ci --legacy-peer-deps
 
 FROM deps AS build
 COPY . .
@@ -15,7 +15,7 @@ RUN apk add --no-cache openssl curl dumb-init
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --legacy-peer-deps
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
