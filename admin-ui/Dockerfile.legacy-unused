@@ -1,3 +1,13 @@
+# ⚠️ DEPRECATED — DO NOT USE. Renamed from "Dockerfile" to avoid Coolify/CI
+# auto-detecting this instead of the root Dockerfile.
+#
+# The current architecture (P04+) builds admin-ui as a static export and
+# bundles it into the ROOT Dockerfile's single Fastify container at
+# dist/public. There is no separate admin-ui service anymore.
+#
+# Use the Dockerfile at the repo root instead. See docs/DEPLOY_VPS_DOCKER.md
+# and docs/DEPLOY_COOLIFY.md.
+
 FROM node:20-alpine AS builder
 
 WORKDIR /app

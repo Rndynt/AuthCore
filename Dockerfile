@@ -11,7 +11,7 @@ RUN npx prisma generate
 RUN npm run build && npx esbuild apps/api/src/main.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist/apps/api/src/main.js
 
 FROM node:20-alpine AS runtime
-RUN apk add --no-cache openssl curl
+RUN apk add --no-cache openssl curl dumb-init
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
@@ -22,4 +22,5 @@ COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/admin-ui/out ./dist/public
 EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 CMD curl -f http://localhost:${PORT:-5000}/healthz || exit 1
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/apps/api/src/main.js"]
